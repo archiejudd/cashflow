@@ -317,7 +317,7 @@ const CAT_NAMES = CATS.map(c => c.name);
 const CAT_MAP   = Object.fromEntries(CATS.map(c => [c.name, c]));
 
 // ── Paste your Apps Script Web App URL here after setup ──
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwvfdie_SHr8sYX1iLC1xbtr8DvGjQScOBaiXe6aFd36J0QWganDCnUspdO8pH6JXBLrQ/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxMxSVjVXAY0jM3cNLlpaOws6Nfni7G5YwxdSpvheAA3WgxFW2Eqic8bdnfuYS__CRDkw/exec';
 // ─────────────────────────────────────────────────────────
 
 const LS = {
@@ -505,7 +505,8 @@ function parseCSV(text) {
   let mnC   = lc.findIndex(h=>h.includes('merchant name'));
   let ttC   = lc.findIndex(h=>h==='transaction type'||h.includes('transaction type'));
   let acC   = lc.findIndex(h=>h.includes('account number')||h.includes('account no')||h==='account');
-  let ncC   = lc.findIndex(h=>h==='category'); // NAB's own category column
+  // NAB's own category column — only pick it up when a header row exists and it's labelled 'category'
+  let ncC   = hasHeader ? lc.findIndex(h=>h==='category') : -1;
   let aC    = lc.findIndex(h=>h==='amount'||(h.includes('amount')&&!h.includes('debit')&&!h.includes('credit'))); if(aC<0) aC=1;
   let dbC   = lc.findIndex(h=>h==='debit'||h==='debit amount');
   let crC   = lc.findIndex(h=>h==='credit'||h==='credit amount');
@@ -623,7 +624,9 @@ function importData(file) {
 //   STATE
 // ════════════════════════════════════════════
 const state = {
-  stage: 'loading',   // loading | setup-key | upload | processing | dashboard
+  stage: 'loading',   // loading | setup-key | upload | label | processing | dashboard
+  pendingFile: null,  // file waiting for account label
+  accountLabel: '',   // label entered by user
   weeks: [],
   wi: 0,
   budgets: {},
@@ -685,6 +688,7 @@ function render() {
   if(state.stage==='loading')        { app.appendChild(renderLoading());   return; }
   if(state.stage==='setup-key')      { app.appendChild(renderSetupKey());  return; }
   if(state.stage==='upload')         { app.appendChild(renderUpload());    return; }
+  if(state.stage==='label')          { app.appendChild(renderLabel());     return; }
   if(state.stage==='processing')     { app.appendChild(renderProcessing());return; }
   if(state.stage==='dashboard')        app.appendChild(renderDashboard());
 }
@@ -764,8 +768,8 @@ function renderUpload() {
   zone.addEventListener('click',()=>fileInput.click());
   zone.addEventListener('dragover',e=>{e.preventDefault();zone.classList.add('drag');});
   zone.addEventListener('dragleave',()=>zone.classList.remove('drag'));
-  zone.addEventListener('drop',e=>{e.preventDefault();zone.classList.remove('drag');handleFile(e.dataTransfer.files[0]);});
-  fileInput.addEventListener('change',e=>handleFile(e.target.files[0]));
+  zone.addEventListener('drop',e=>{e.preventDefault();zone.classList.remove('drag');selectFile(e.dataTransfer.files[0]);});
+  fileInput.addEventListener('change',e=>selectFile(e.target.files[0]));
   wrap.appendChild(zone);
 
   if(state.error) {
@@ -812,7 +816,59 @@ function renderUpload() {
   return wrap;
 }
 
-async function handleFile(file) {
+function selectFile(file) {
+  if(!file) return;
+  if(!file.name.toLowerCase().endsWith('.csv')) { state.error='Please upload a .csv file'; render(); return; }
+  state.error = null;
+  state.pendingFile = file;
+  state.accountLabel = '';
+  state.stage = 'label';
+  render();
+}
+
+// ── Label screen ──────────────────────────────
+function renderLabel() {
+  const file = state.pendingFile;
+  const wrap = el('div',{class:'onboard-wrap'});
+  const card = el('div',{class:'onboard-card'});
+
+  card.append(
+    el('div',{class:'eyebrow', text:'Judd Cashflow'}),
+    el('h1', {class:'onboard-title serif', text:'Label this account.'}),
+    el('p',  {class:'onboard-sub', text:`Give this statement a short name so you can tell accounts apart. This will appear next to every transaction.`}),
+  );
+
+  const fileNote = el('div',{style:'font-size:12px;color:var(--dim);background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin-bottom:18px;'});
+  fileNote.innerHTML = `📄 <strong>${file?.name}</strong>`;
+  card.appendChild(fileNote);
+
+  const label  = el('div',{class:'field-label', text:'Account label'});
+  const input  = el('input',{class:'input', placeholder:'e.g. NAB Everyday, CBA Joint, NAB Savings'});
+  const btn    = el('button',{class:'btn btn-primary', text:'Categorise transactions →', style:'width:100%;margin-top:14px;'});
+  const err    = el('div',{style:'color:var(--red);font-size:13px;margin-top:8px;display:none;', text:'Please enter an account label.'});
+  const back   = el('button',{class:'btn btn-ghost', text:'← Back', style:'width:100%;margin-top:8px;'});
+
+  // Suggest a label from filename
+  const nameLower = (file?.name||'').toLowerCase();
+  if(nameLower.includes('nab'))        input.value = 'NAB Everyday';
+  else if(nameLower.includes('cba')||nameLower.includes('commbank')) input.value = 'CBA Everyday';
+
+  btn.addEventListener('click', () => {
+    const v = input.value.trim();
+    if(!v) { err.style.display='block'; return; }
+    state.accountLabel = v;
+    handleFile(state.pendingFile, v);
+  });
+  back.addEventListener('click', () => { state.stage='upload'; state.pendingFile=null; render(); });
+  input.addEventListener('keydown', e => { if(e.key==='Enter') btn.click(); });
+
+  card.append(label, input, err, btn, back);
+  wrap.appendChild(card);
+  setTimeout(()=>{ input.focus(); input.select(); }, 50);
+  return wrap;
+}
+
+async function handleFile(file, accountLabel='') {
   if(!file) return;
   if(!file.name.toLowerCase().endsWith('.csv')) { state.error='Please upload a .csv file'; render(); return; }
   state.error=null;
@@ -821,6 +877,13 @@ async function handleFile(file) {
   try {
     const text = await file.text();
     txns = parseCSV(text);
+    // Stamp account label onto every transaction
+    // For NAB: label overrides the raw account number for display; raw number kept separately
+    if(accountLabel) txns = txns.map(t => ({
+      ...t,
+      account: accountLabel,
+      accountRaw: t.account || '', // preserve raw account number from file
+    }));
   } catch(e) { state.error=e.message; render(); return; }
 
   state.stage='processing';
