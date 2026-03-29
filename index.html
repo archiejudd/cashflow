@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Cashflow — Weekly Budget Tracker</title>
+<title>Judd Cashflow</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -297,26 +297,117 @@ body {
 //   CONFIG
 // ════════════════════════════════════════════
 const CATS = [
-  { name:"Income",            isIncome:true,  color:"#4ade80", budget:null },
-  { name:"Groceries",         isIncome:false, color:"#60a5fa", budget:200  },
-  { name:"Dining & Takeaway", isIncome:false, color:"#f472b6", budget:100  },
-  { name:"Transport",         isIncome:false, color:"#a78bfa", budget:80   },
-  { name:"Utilities & Bills", isIncome:false, color:"#fbbf24", budget:60   },
-  { name:"Subscriptions",     isIncome:false, color:"#34d399", budget:40   },
-  { name:"Health & Fitness",  isIncome:false, color:"#fb7185", budget:60   },
-  { name:"Shopping",          isIncome:false, color:"#fb923c", budget:150  },
-  { name:"Entertainment",     isIncome:false, color:"#e879f9", budget:80   },
-  { name:"Other",             isIncome:false, color:"#94a3b8", budget:100  },
+  { name:"Income",             isIncome:true,   isTransfer:false, color:"#4ade80", budget:null,  freq:'monthly'   },
+  { name:"Internal Transfers", isIncome:false,  isTransfer:true,  color:"#64748b", budget:null,  freq:'monthly'   },
+  { name:"Mortgage",           isIncome:false,  isTransfer:false, color:"#38bdf8", budget:3000,  freq:'monthly'   },
+  { name:"Groceries",          isIncome:false,  isTransfer:false, color:"#60a5fa", budget:800,   freq:'monthly'   },
+  { name:"Dining & Takeaway",  isIncome:false,  isTransfer:false, color:"#f472b6", budget:400,   freq:'monthly'   },
+  { name:"Transport",          isIncome:false,  isTransfer:false, color:"#a78bfa", budget:300,   freq:'monthly'   },
+  { name:"Utilities & Bills",  isIncome:false,  isTransfer:false, color:"#fbbf24", budget:250,   freq:'monthly'   },
+  { name:"Strata Fees",        isIncome:false,  isTransfer:false, color:"#fb923c", budget:3000,  freq:'quarterly' },
+  { name:"Insurance",          isIncome:false,  isTransfer:false, color:"#c084fc", budget:1200,  freq:'quarterly' },
+  { name:"Medical",            isIncome:false,  isTransfer:false, color:"#fb7185", budget:200,   freq:'monthly'   },
+  { name:"Subscriptions",      isIncome:false,  isTransfer:false, color:"#34d399", budget:150,   freq:'monthly'   },
+  { name:"Health & Fitness",   isIncome:false,  isTransfer:false, color:"#f97316", budget:250,   freq:'monthly'   },
+  { name:"Shopping",           isIncome:false,  isTransfer:false, color:"#e879f9", budget:600,   freq:'monthly'   },
+  { name:"Entertainment",      isIncome:false,  isTransfer:false, color:"#818cf8", budget:300,   freq:'monthly'   },
+  { name:"Other",              isIncome:false,  isTransfer:false, color:"#94a3b8", budget:400,   freq:'monthly'   },
 ];
 const CAT_NAMES = CATS.map(c => c.name);
 const CAT_MAP   = Object.fromEntries(CATS.map(c => [c.name, c]));
 
+// ── Change this to whatever password you want ──
+const APP_PASSWORD = 'judd2026';
+// ───────────────────────────────────────────────
+
 const LS = {
   KEY:     'cf_api_key',
   BUDGETS: 'cf_budgets',
+  FREQS:   'cf_freqs',
   TXNS:    'cf_transactions',
   FILE:    'cf_last_file',
 };
+
+const FREQ_DIVISOR = { monthly: 1, quarterly: 3, annually: 12 };
+const FREQ_LABEL   = { monthly: '/mo', quarterly: '/qtr', annually: '/yr' };
+
+// Monthly equivalent budget for bar calculation
+function monthlyBudget(catName) {
+  const budget = state.budgets[catName];
+  if(!budget) return null;
+  const freq = state.freqs[catName] || 'monthly';
+  return budget / FREQ_DIVISOR[freq];
+}
+
+// ════════════════════════════════════════════
+//   QUOTES
+// ════════════════════════════════════════════
+const QUOTES = [
+  { text: "A budget is telling your money where to go instead of wondering where it went.", author: "Dave Ramsey" },
+  { text: "Do not save what is left after spending, but spend what is left after saving.", author: "Warren Buffett" },
+  { text: "It's not your salary that makes you rich, it's your spending habits.", author: "Charles A. Jaffe" },
+  { text: "Wealth is not about having a lot of money; it's about having a lot of options.", author: "Chris Rock" },
+  { text: "The secret to getting ahead is getting started.", author: "Mark Twain" },
+  { text: "Financial freedom is available to those who learn about it and work for it.", author: "Robert Kiyosaki" },
+  { text: "Beware of little expenses. A small leak will sink a great ship.", author: "Benjamin Franklin" },
+  { text: "The habit of saving is itself an education.", author: "T.T. Munger" },
+  { text: "You must gain control over your money or the lack of it will forever control you.", author: "Dave Ramsey" },
+  { text: "An investment in knowledge pays the best interest.", author: "Benjamin Franklin" },
+];
+
+function randomQuote() {
+  const q = QUOTES[Math.floor(Math.random() * QUOTES.length)];
+  return `"${q.text}" — ${q.author}`;
+}
+
+// ════════════════════════════════════════════
+//   AUTH
+// ════════════════════════════════════════════
+function isAuthed() {
+  return sessionStorage.getItem('cf_auth') === '1';
+}
+function setAuthed() {
+  sessionStorage.setItem('cf_auth', '1');
+}
+
+function renderPassword() {
+  const wrap = el('div', {class:'onboard-wrap'});
+  const card = el('div', {class:'onboard-card'});
+
+  const q0 = QUOTES[Math.floor(Math.random() * QUOTES.length)];
+  const quoteSub = el('p', {class:'onboard-sub'});
+  quoteSub.innerHTML = `<em>"${q0.text}"</em><br><span style="font-size:12px;">${q0.author}</span>`;
+
+  card.append(
+    el('div', {class:'eyebrow', text:'Judd Cashflow'}),
+    el('h1',  {class:'onboard-title serif', text:'Welcome back.'}),
+    quoteSub,
+  );
+
+  const label = el('div', {class:'field-label', text:'Password'});
+  const input = el('input', {class:'input', type:'password', placeholder:'••••••••'});
+  const btn   = el('button', {class:'btn btn-primary', text:'Unlock →', style:'width:100%;margin-top:14px;'});
+  const err   = el('div', {style:'color:var(--red);font-size:13px;margin-top:10px;display:none;', text:'Incorrect password.'});
+
+  const attempt = () => {
+    if(input.value === APP_PASSWORD) {
+      setAuthed();
+      render();
+    } else {
+      err.style.display = 'block';
+      input.value = '';
+      input.focus();
+    }
+  };
+
+  btn.addEventListener('click', attempt);
+  input.addEventListener('keydown', e => { if(e.key === 'Enter') attempt(); });
+
+  card.append(label, input, err, btn);
+  wrap.appendChild(card);
+  setTimeout(() => input.focus(), 50);
+  return wrap;
+}
 
 // ════════════════════════════════════════════
 //   UTILS
@@ -326,17 +417,14 @@ function fmt(n, sign=false) {
   return (sign ? (n<0?'−':'+') : '') + '$' + s;
 }
 
-function weekStart(d) {
-  const dt = new Date(d), day = dt.getDay();
-  dt.setDate(dt.getDate() - (day===0 ? 6 : day-1));
-  dt.setHours(0,0,0,0); return dt;
+function monthKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 }
 
-function fmtWeekRange(ws) {
-  const we = new Date(ws); we.setDate(we.getDate()+6);
-  const a = ws.toLocaleDateString('en-AU',{day:'numeric',month:'short'});
-  const b = we.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'});
-  return `${a} – ${b}`;
+function fmtMonth(key) {
+  const [y, m] = key.split('-');
+  const d = new Date(+y, +m-1, 1);
+  return d.toLocaleDateString('en-AU', {month:'long', year:'numeric'});
 }
 
 // ════════════════════════════════════════════
@@ -388,7 +476,8 @@ function parseCSV(text) {
 
   let dC   = lc.findIndex(h=>h.includes('date'));            if(dC<0)  dC=0;
   let xC   = lc.findIndex(h=>h.includes('transaction details')||h.includes('narration')||h.includes('description')||h.includes('details')); if(xC<0) xC=2;
-  let mnC  = lc.findIndex(h=>h.includes('merchant name')); // NAB extra column
+  let mnC  = lc.findIndex(h=>h.includes('merchant name'));
+  let ttC  = lc.findIndex(h=>h==='transaction type'||h.includes('transaction type')); // NAB type column
   let aC   = lc.findIndex(h=>h==='amount'||(h.includes('amount')&&!h.includes('debit')&&!h.includes('credit'))); if(aC<0) aC=1;
   let dbC  = lc.findIndex(h=>h==='debit'||h==='debit amount');
   let crC  = lc.findIndex(h=>h==='credit'||h==='credit amount');
@@ -410,23 +499,30 @@ function parseCSV(text) {
     if(isNaN(amount)) continue;
     const details  = (row[xC]||'').replace(/"/g,'').trim();
     const merchant = mnC>=0 ? (row[mnC]||'').replace(/"/g,'').trim() : '';
-    // Combine both fields — merchant name is often more readable (e.g. "Woolworths" vs "VISA DEBIT PURCHASE 1234")
+    const txnType  = ttC>=0 ? (row[ttC]||'').replace(/"/g,'').trim().toUpperCase() : '';
     const desc = merchant && merchant !== details ? `${merchant} (${details})` : details || merchant;
     if(!desc) continue;
-    txns.push({ id:i, date:date.toISOString(), amount, description:desc, category:null });
+    txns.push({ id:i, date:date.toISOString(), amount, description:desc, txnType, category:null });
   }
   if(!txns.length) throw new Error('No valid transactions found. Check that your CSV has Date, Amount, and Description columns.');
   return txns;
 }
 
-function groupByWeek(txns) {
+function groupByMonth(txns) {
   const map={};
   for(const t of txns){
-    const ws=weekStart(new Date(t.date)), k=ws.toISOString();
-    if(!map[k]) map[k]={weekStart:ws.toISOString(), transactions:[]};
+    const k = monthKey(new Date(t.date));
+    if(!map[k]) map[k]={ monthKey:k, transactions:[] };
     map[k].transactions.push(t);
   }
-  return Object.values(map).sort((a,b)=>new Date(b.weekStart)-new Date(a.weekStart));
+  return Object.values(map).sort((a,b)=> b.monthKey.localeCompare(a.monthKey));
+}
+
+function mostRecentDate(txns) {
+  if(!txns.length) return null;
+  return txns.reduce((latest, t) =>
+    new Date(t.date) > new Date(latest.date) ? t : latest
+  ).date;
 }
 
 // ════════════════════════════════════════════
@@ -436,20 +532,25 @@ async function categoriseBatch(batch, apiKey) {
   const prompt = `Categorise each bank transaction into exactly one of: ${CAT_NAMES.join(', ')}.
 
 Rules:
-- Salary/wages/payroll/employer/ATO tax return/refund/cashback → Income
-- Superannuation contributions → Income
+- TRANSFER CREDIT / TRANSFER DEBIT / any transfer between own accounts / "Linked Acc" / "Own Transfer" / inter-account movements → Internal Transfers
+- Mortgage repayments / home loan payments → Mortgage
+- Strata fees / body corporate / owners corporation levies → Strata Fees
+- Health insurance / car insurance / home insurance / life insurance / income protection → Insurance
+- Doctor / GP / specialist / dentist / optometrist / pathology / radiology / hospital / Medicare / pharmacy prescriptions → Medical
+- Salary/wages/payroll/employer payments/ATO tax return → Income
+- Superannuation contributions received → Income
 - Woolworths/Coles/Aldi/IGA/Costco/Harris Farm/Foodworks → Groceries
 - Restaurants/cafes/takeaway/UberEats/DoorDash/Menulog/McDonald's/KFC/Hungry Jacks/Guzman/Subway → Dining & Takeaway
 - Petrol/BP/Shell/Caltex/Ampol/Uber/taxi/DiDi/Opal/parking/bus/train/ferry → Transport
-- AGL/Origin/EnergyAustralia/Sydney Water/Telstra/Optus/Vodafone/Aussie Broadband/NBN/electricity/gas/rent/strata → Utilities & Bills
+- AGL/Origin/EnergyAustralia/Sydney Water/Telstra/Optus/Vodafone/Aussie Broadband/NBN/electricity/gas/rent → Utilities & Bills
 - Netflix/Spotify/Apple/Google/Adobe/iCloud/Canva/Dropbox/GitHub/recurring monthly subscription → Subscriptions
-- Chemist Warehouse/Priceline/pharmacy/gym/Fitness First/Anytime Fitness/medical/dental/physio/psychology → Health & Fitness
+- Gym/Fitness First/Anytime Fitness/exercise/sport (non-medical) → Health & Fitness
 - Clothing/Zara/H&M/ASOS/The Iconic/David Jones/Myer/JB Hi-Fi/Harvey Norman/Amazon/eBay → Shopping
 - Cinema/Hoyts/Event/bars/pubs/clubs/Ticketek/Eventbrite → Entertainment
-- ATM/cash withdrawal/bank fee/transfer/bpay/everything else → Other
+- ATM/cash withdrawal/bank fee/bpay/everything else → Other
 
-Transactions:
-${batch.map((t,i)=>`${i}. ${t.description} | ${t.amount>=0?'+':''}${t.amount.toFixed(2)}`).join('\n')}
+Transactions (type | description | amount):
+${batch.map((t,i)=>`${i}. ${t.txnType||'UNKNOWN'} | ${t.description} | ${t.amount>=0?'+':''}${t.amount.toFixed(2)}`).join('\n')}
 
 Return ONLY a JSON array, no markdown, no explanation:
 [{"i":0,"cat":"CategoryName"},...]`;
@@ -535,7 +636,7 @@ function importData(file) {
       localStorage.setItem(LS.TXNS, JSON.stringify(payload.transactions));
       localStorage.setItem(LS.FILE, payload.lastFile || 'imported backup');
       state.lastFile = payload.lastFile || 'imported backup';
-      state.weeks = groupByWeek(payload.transactions);
+      state.weeks = groupByMonth(payload.transactions);
       state.wi = 0; state.selectedCat = null; state.error = null;
       state.stage = 'dashboard';
       render();
@@ -551,11 +652,12 @@ function importData(file) {
 //   STATE
 // ════════════════════════════════════════════
 const state = {
-  stage: 'onboard',   // onboard | upload | processing | dashboard
+  stage: 'onboard',
   apiKey: '',
   weeks: [],
   wi: 0,
   budgets: {},
+  freqs: {},
   editBudget: null,
   editBudgetVal: '',
   progress: { done:0, total:0 },
@@ -573,12 +675,17 @@ const state = {
   const savedBudgets = localStorage.getItem(LS.BUDGETS);
   state.budgets = savedBudgets
     ? JSON.parse(savedBudgets)
-    : Object.fromEntries(CATS.filter(c=>!c.isIncome).map(c=>[c.name,c.budget]));
+    : Object.fromEntries(CATS.filter(c=>!c.isIncome&&!c.isTransfer).map(c=>[c.name,c.budget]));
+
+  const savedFreqs = localStorage.getItem(LS.FREQS);
+  state.freqs = savedFreqs
+    ? JSON.parse(savedFreqs)
+    : Object.fromEntries(CATS.filter(c=>!c.isIncome&&!c.isTransfer).map(c=>[c.name,c.freq||'monthly']));
 
   const savedTxns = localStorage.getItem(LS.TXNS);
   if(savedTxns) {
     const txns = JSON.parse(savedTxns);
-    state.weeks = groupByWeek(txns);
+    state.weeks = groupByMonth(txns);
     state.lastFile = localStorage.getItem(LS.FILE);
   }
 })();
@@ -590,10 +697,11 @@ function render() {
   const app = document.getElementById('app');
   app.innerHTML = '';
 
-  if(state.stage==='onboard')    app.appendChild(renderOnboard());
-  else if(state.stage==='upload')     app.appendChild(renderUpload());
-  else if(state.stage==='processing') app.appendChild(renderProcessing());
-  else if(state.stage==='dashboard')  app.appendChild(renderDashboard());
+  if(!isAuthed())                  { app.appendChild(renderPassword());   return; }
+  if(state.stage==='onboard')      { app.appendChild(renderOnboard());    return; }
+  if(state.stage==='upload')       { app.appendChild(renderUpload());     return; }
+  if(state.stage==='processing')   { app.appendChild(renderProcessing()); return; }
+  if(state.stage==='dashboard')      app.appendChild(renderDashboard());
 }
 
 // ── Onboard ──────────────────────────────────
@@ -602,7 +710,7 @@ function renderOnboard() {
   const card = el('div',{class:'onboard-card'});
 
   card.append(
-    el('div',{class:'eyebrow',text:'Cashflow'}),
+    el('div',{class:'eyebrow',text:'Judd Cashflow'}),
     el('h1',{class:'onboard-title serif',text:'Weekly budget\ntracker.'}),
     el('p',{class:'onboard-sub',text:'Upload your NAB or CBA transaction CSV and Claude will automatically categorise everything for you.'}),
   );
@@ -657,8 +765,8 @@ function renderOnboard() {
 function renderUpload() {
   const wrap = el('div',{class:'upload-wrap'});
   wrap.append(
-    el('div',{class:'eyebrow',text:'Cashflow', style:'text-align:center'}),
-    el('h1',{class:'upload-heading serif', text:'Your money,\nweek by week.'}),
+    el('div',{class:'eyebrow',text:'Judd Cashflow', style:'text-align:center'}),
+    el('h1',{class:'upload-heading serif', text:'Your money,\nmonth by month.'}),
     el('p',{class:'upload-sub', text:'Drop a CSV from NAB or Commonwealth Bank. Transactions are automatically categorised.'}),
   );
 
@@ -755,7 +863,7 @@ async function handleFile(file) {
   localStorage.setItem(LS.TXNS,JSON.stringify(all));
   localStorage.setItem(LS.FILE,file.name);
   state.lastFile=file.name;
-  state.weeks=groupByWeek(all);
+  state.weeks=groupByMonth(all);
   state.wi=0; state.selectedCat=null;
   state.stage='dashboard'; render();
 }
@@ -781,7 +889,7 @@ function renderDashboard() {
   // Header
   const hdr=el('div',{class:'dash-header'});
   const hLeft=el('div');
-  hLeft.append(el('div',{class:'eyebrow',text:'Cashflow'}),el('div',{class:'dash-title serif',text:'Weekly Budget'}));
+  hLeft.append(el('div',{class:'eyebrow',text:'Judd Cashflow'}),el('div',{class:'dash-title serif',text:'Monthly Budget'}));
   const hRight=el('div',{class:'dash-actions'});
   const exportBtn=el('button',{class:'btn btn-ghost',text:'↓ Export backup'});
   exportBtn.addEventListener('click',()=>exportData());
@@ -791,20 +899,36 @@ function renderDashboard() {
   hdr.append(hLeft,hRight);
   wrap.appendChild(hdr);
 
-  const week=state.weeks[state.wi];
-  const txns=week?.transactions||[];
+  const month=state.weeks[state.wi];
+  const txns=month?.transactions||[];
 
-  // Totals
+  // Most recent transaction date across ALL data
+  const allTxns = state.weeks.flatMap(w=>w.transactions);
+  const latestDate = mostRecentDate(allTxns);
+  if(latestDate) {
+    const upTo = el('div',{style:'font-size:12px;color:var(--dim);margin-bottom:10px;'});
+    upTo.innerHTML = `Data up to <strong style="color:var(--text)">${new Date(latestDate).toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'long',year:'numeric'})}</strong>`;
+    wrap.appendChild(upTo);
+  }
+  // Rotating quote
+  const q = QUOTES[Math.floor(Math.random() * QUOTES.length)];
+  const quoteEl = el('div',{style:'font-size:12px;color:var(--dim2);font-style:italic;margin-bottom:22px;max-width:520px;line-height:1.6;'});
+  quoteEl.innerHTML = `"${q.text}" <span style="font-style:normal;color:var(--dim);"> — ${q.author}</span>`;
+  wrap.appendChild(quoteEl);
+
+  // Totals — Internal Transfers excluded from income and spend
   const totals=Object.fromEntries(CAT_NAMES.map(c=>[c,0]));
   for(const t of txns){
-    if(t.amount>0) totals['Income']+=t.amount;
-    else totals[t.category||'Other']+=Math.abs(t.amount);
+    const cat = t.category || 'Other';
+    if(cat === 'Internal Transfers') { totals['Internal Transfers'] += Math.abs(t.amount); continue; }
+    if(t.amount > 0) totals['Income'] += t.amount;
+    else totals[cat] += Math.abs(t.amount);
   }
-  const income=totals['Income'];
-  const spend=CATS.filter(c=>!c.isIncome).reduce((s,c)=>s+totals[c.name],0);
-  const net=income-spend;
+  const income = totals['Income'];
+  const spend  = CATS.filter(c=>!c.isIncome&&!c.isTransfer).reduce((s,c)=>s+totals[c.name],0);
+  const net    = income - spend;
 
-  // Week nav
+  // Month nav
   const nav=el('div',{class:'week-nav'});
   const prev=el('button',{class:'nav-btn',text:'‹'});
   const next=el('button',{class:'nav-btn',text:'›'});
@@ -814,8 +938,8 @@ function renderDashboard() {
   next.addEventListener('click',()=>{ state.wi=Math.max(state.wi-1,0); state.selectedCat=null; render(); });
   const navMid=el('div',{style:'text-align:center'});
   navMid.append(
-    el('div',{class:'week-range',text:week?fmtWeekRange(new Date(week.weekStart)):''}),
-    el('div',{class:'week-meta',text:`${txns.length} transactions · Week ${state.weeks.length-state.wi} of ${state.weeks.length}`})
+    el('div',{class:'week-range',text:month?fmtMonth(month.monthKey):''}),
+    el('div',{class:'week-meta',text:`${txns.length} transactions · Month ${state.weeks.length-state.wi} of ${state.weeks.length}`})
   );
   nav.append(prev,navMid,next);
   wrap.appendChild(nav);
@@ -906,8 +1030,11 @@ function renderDashboard() {
   // Transaction panel
   if(state.selectedCat){
     const cat=CAT_MAP[state.selectedCat];
-    const catTxns=txns.filter(t=>state.selectedCat==='Income'?t.amount>0:(t.category===state.selectedCat&&t.amount<0))
-                      .sort((a,b)=>new Date(b.date)-new Date(a.date));
+    const catTxns=txns.filter(t=>{
+      if(state.selectedCat==='Income') return t.amount>0 && t.category!=='Internal Transfers';
+      if(state.selectedCat==='Internal Transfers') return t.category==='Internal Transfers';
+      return t.category===state.selectedCat && t.amount<0;
+    }).sort((a,b)=>new Date(b.date)-new Date(a.date));
 
     const panel=el('div',{class:'txn-panel'});
     const ph=el('div',{class:'txn-ph'});
@@ -917,7 +1044,7 @@ function renderDashboard() {
     panel.appendChild(ph);
 
     if(!catTxns.length){
-      panel.appendChild(el('div',{class:'empty-state',text:'No transactions in this category this week'}));
+      panel.appendChild(el('div',{class:'empty-state',text:'No transactions in this category this month'}));
     } else {
       catTxns.forEach(t=>{
         const row=el('div',{class:'txn-row'});
