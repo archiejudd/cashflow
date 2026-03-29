@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cashflow — Weekly Budget Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:      #08090d;
+  --s1:      #0f1117;
+  --s2:      #161920;
+  --s3:      #1c202a;
+  --border:  #252b38;
+  --border2: #1a1f2a;
+  --text:    #dde1ea;
+  --dim:     #5a6275;
+  --dim2:    #3c4357;
+  --green:   #4ade80;
+  --red:     #f87171;
+  --accent:  #7c83fd;
+  --acc-dim: #7c83fd18;
+}
+
+html, body { height: 100%; }
+body {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+
+/* ── Layout ── */
+#app { min-height: 100vh; }
+.page-wrap { max-width: 920px; margin: 0 auto; padding: 36px 20px 100px; }
+
+/* ── Typography helpers ── */
+.serif { font-family: 'Instrument Serif', serif; }
+.mono  { font-family: 'DM Mono', monospace; }
+.label {
+  font-size: 10px; font-weight: 600;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--dim);
+}
+.eyebrow {
+  font-size: 10px; font-weight: 600;
+  letter-spacing: .16em; text-transform: uppercase;
+  color: var(--accent); margin-bottom: 10px;
+}
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 10px 22px; border-radius: 9px; border: none; cursor: pointer;
+  font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 500;
+  transition: opacity .15s, background .15s;
+}
+.btn:hover { opacity: .85; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-ghost {
+  background: var(--s1); border: 1px solid var(--border); color: var(--dim);
+}
+.btn-ghost:hover { color: var(--text); opacity: 1; background: var(--s2); }
+
+/* ── Input ── */
+.input {
+  width: 100%; background: var(--s2); border: 1px solid var(--border);
+  border-radius: 9px; color: var(--text); font-family: 'DM Mono', monospace;
+  font-size: 13px; padding: 11px 14px; outline: none;
+  transition: border-color .15s;
+}
+.input:focus { border-color: var(--accent); }
+.input::placeholder { color: var(--dim2); }
+
+/* ══════════════════════════════════════
+   ONBOARDING (API key + instructions)
+══════════════════════════════════════ */
+.onboard-wrap {
+  min-height: 100vh; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; padding: 40px 20px; gap: 0;
+}
+.onboard-card {
+  width: 100%; max-width: 460px;
+  background: var(--s1); border: 1px solid var(--border);
+  border-radius: 20px; padding: 36px 32px;
+}
+.onboard-title {
+  font-family: 'Instrument Serif', serif;
+  font-size: 30px; line-height: 1.15; margin-bottom: 8px;
+}
+.onboard-sub { color: var(--dim); font-size: 14px; margin-bottom: 28px; line-height: 1.6; }
+.field-label { font-size: 12px; font-weight: 500; margin-bottom: 6px; color: var(--dim); }
+.key-hint {
+  margin-top: 10px; font-size: 12px; color: var(--dim2); line-height: 1.6;
+}
+.key-hint a { color: var(--accent); text-decoration: none; }
+.key-hint a:hover { text-decoration: underline; }
+.onboard-footer { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border2); }
+.cost-note {
+  font-size: 12px; color: var(--dim); background: var(--s2);
+  border-radius: 8px; padding: 10px 14px; line-height: 1.6;
+}
+.cost-note strong { color: var(--text); }
+
+/* ══════════════════════════════════════
+   UPLOAD
+══════════════════════════════════════ */
+.upload-wrap {
+  min-height: 100vh; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; padding: 40px 20px;
+}
+.upload-heading {
+  font-family: 'Instrument Serif', serif;
+  font-size: clamp(32px, 6vw, 52px); line-height: 1.1;
+  margin-bottom: 10px; text-align: center;
+}
+.upload-sub { color: var(--dim); font-size: 15px; text-align: center; max-width: 360px; margin-bottom: 36px; line-height: 1.6; }
+
+.dropzone {
+  width: 100%; max-width: 480px;
+  background: var(--s1); border: 2px dashed var(--border);
+  border-radius: 20px; padding: 48px 32px;
+  text-align: center; cursor: pointer;
+  transition: border-color .2s, background .2s;
+  position: relative;
+}
+.dropzone:hover, .dropzone.drag {
+  border-color: var(--accent); background: var(--s2);
+}
+.dropzone-icon { font-size: 40px; margin-bottom: 14px; line-height: 1; }
+.dropzone-title { font-weight: 500; font-size: 16px; margin-bottom: 5px; }
+.dropzone-hint { color: var(--dim); font-size: 13px; margin-bottom: 20px; }
+.chip-row { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+.chip {
+  background: var(--s2); border: 1px solid var(--border);
+  color: var(--dim); font-size: 11px; font-weight: 500;
+  padding: 3px 12px; border-radius: 99px;
+}
+.err-banner {
+  margin-top: 16px; max-width: 480px;
+  background: #1c0a0a; border: 1px solid #4a1515;
+  border-radius: 10px; padding: 12px 16px;
+  font-size: 13px; color: #f87171; line-height: 1.55;
+}
+.cached-note {
+  margin-top: 20px; max-width: 480px; text-align: center;
+  font-size: 13px; color: var(--dim); display: flex; align-items: center; gap: 8px;
+  background: var(--s1); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 18px;
+}
+.cached-note button {
+  background: none; border: none; color: var(--accent);
+  cursor: pointer; font-size: 13px; font-family: 'DM Sans', sans-serif;
+  text-decoration: underline; text-underline-offset: 2px; padding: 0;
+  white-space: nowrap;
+}
+
+/* ══════════════════════════════════════
+   PROCESSING
+══════════════════════════════════════ */
+.proc-wrap {
+  min-height: 100vh; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 24px; padding: 40px;
+}
+.proc-icon { font-size: 40px; animation: pulse 1.8s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.4;} }
+.proc-title { font-weight: 600; font-size: 18px; margin-bottom: 4px; text-align: center; }
+.proc-sub { color: var(--dim); font-size: 14px; text-align: center; }
+.prog-track { width: 260px; height: 4px; background: var(--s2); border-radius: 99px; overflow: hidden; }
+.prog-fill { height: 100%; background: var(--accent); border-radius: 99px; transition: width .35s ease; }
+.proc-pct { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--dim); }
+
+/* ══════════════════════════════════════
+   DASHBOARD
+══════════════════════════════════════ */
+.dash-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  margin-bottom: 28px; gap: 12px;
+}
+.dash-title { font-family: 'Instrument Serif', serif; font-size: 26px; line-height: 1.2; }
+.dash-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+/* Week nav */
+.week-nav {
+  background: var(--s1); border: 1px solid var(--border);
+  border-radius: 14px; padding: 14px 18px;
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 20px;
+}
+.nav-btn {
+  background: none; border: none; cursor: pointer; color: var(--text);
+  font-size: 20px; padding: 2px 10px; line-height: 1;
+  transition: opacity .15s; font-family: inherit;
+}
+.nav-btn:disabled { opacity: .2; cursor: default; }
+.week-range { font-weight: 500; font-size: 15px; margin-bottom: 2px; }
+.week-meta { font-size: 12px; color: var(--dim); }
+
+/* Summary row */
+.summary-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; margin-bottom: 22px; }
+.s-card {
+  background: var(--s1); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px 18px;
+}
+.s-label { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); margin-bottom: 6px; }
+.s-val { font-family: 'DM Mono', monospace; font-size: clamp(14px,3.5vw,21px); font-weight: 500; }
+
+/* Category grid */
+.cats-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(265px, 1fr));
+  gap: 8px; margin-bottom: 20px;
+}
+.cat-card {
+  background: var(--s1); border: 1px solid var(--border);
+  border-radius: 11px; padding: 14px 16px;
+  cursor: pointer; transition: background .15s, border-color .15s;
+  user-select: none;
+}
+.cat-card:hover { background: var(--s2); }
+.cat-card.active { background: var(--s2); border-color: var(--active-color, var(--accent)); }
+.cat-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 9px; }
+.cat-left { display: flex; align-items: center; gap: 7px; }
+.cat-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.cat-name { font-weight: 500; font-size: 13px; }
+.cat-right { display: flex; align-items: center; gap: 5px; }
+.cat-spent { font-family: 'DM Mono', monospace; font-size: 13px; }
+.budget-edit-btn {
+  font-family: 'DM Mono', monospace; font-size: 11px;
+  color: var(--dim); background: none; border: none; cursor: pointer;
+  text-decoration: underline dotted; text-underline-offset: 2px; padding: 0;
+  transition: color .15s;
+}
+.budget-edit-btn:hover { color: var(--text); }
+.budget-inline-input {
+  width: 60px; background: var(--s3); border: 1px solid var(--accent);
+  border-radius: 4px; color: var(--text); font-family: 'DM Mono', monospace;
+  font-size: 12px; padding: 2px 6px; outline: none;
+}
+.track { height: 4px; background: var(--s3); border-radius: 99px; overflow: hidden; }
+.track-fill { height: 100%; border-radius: 99px; transition: width .4s cubic-bezier(.22,1,.36,1); }
+.over-badge {
+  display: inline-block; font-size: 10px; font-weight: 600;
+  background: #1c0505; border: 1px solid #4a1010; color: var(--red);
+  padding: 1px 7px; border-radius: 99px; margin-left: 4px;
+}
+
+/* Transaction panel */
+.txn-panel {
+  background: var(--s1); border: 1px solid var(--border);
+  border-radius: 14px; overflow: hidden; margin-bottom: 16px;
+  animation: slideIn .2s ease;
+}
+@keyframes slideIn { from{opacity:0;transform:translateY(6px);} to{opacity:1;transform:none;} }
+.txn-ph { padding: 14px 20px; border-bottom: 1px solid var(--border2); display: flex; justify-content: space-between; align-items: center; }
+.txn-ph-title { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }
+.txn-count { font-size: 12px; color: var(--dim); }
+.txn-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 11px 20px; border-bottom: 1px solid var(--border2);
+}
+.txn-row:last-child { border-bottom: none; }
+.txn-desc { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 360px; }
+.txn-date { font-size: 11px; color: var(--dim); margin-top: 2px; }
+.txn-amt { font-family: 'DM Mono', monospace; font-size: 13px; white-space: nowrap; padding-left: 16px; }
+.empty-state { padding: 40px; text-align: center; color: var(--dim); font-size: 14px; }
+
+/* Settings panel */
+.settings-bar {
+  display: flex; justify-content: space-between; align-items: center;
+  padding-top: 16px; border-top: 1px solid var(--border2); margin-top: 8px;
+}
+.settings-bar span { font-size: 13px; color: var(--dim); }
+
+/* Responsive */
+@media (max-width: 520px) {
+  .summary-row { grid-template-columns: 1fr 1fr; }
+  .summary-row .s-card:last-child { grid-column: 1/-1; }
+  .cats-grid { grid-template-columns: 1fr; }
+  .onboard-card { padding: 28px 22px; }
+}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+// ════════════════════════════════════════════
+//   CONFIG
+// ════════════════════════════════════════════
+const CATS = [
+  { name:"Income",            isIncome:true,  color:"#4ade80", budget:null },
+  { name:"Groceries",         isIncome:false, color:"#60a5fa", budget:200  },
+  { name:"Dining & Takeaway", isIncome:false, color:"#f472b6", budget:100  },
+  { name:"Transport",         isIncome:false, color:"#a78bfa", budget:80   },
+  { name:"Utilities & Bills", isIncome:false, color:"#fbbf24", budget:60   },
+  { name:"Subscriptions",     isIncome:false, color:"#34d399", budget:40   },
+  { name:"Health & Fitness",  isIncome:false, color:"#fb7185", budget:60   },
+  { name:"Shopping",          isIncome:false, color:"#fb923c", budget:150  },
+  { name:"Entertainment",     isIncome:false, color:"#e879f9", budget:80   },
+  { name:"Other",             isIncome:false, color:"#94a3b8", budget:100  },
+];
+const CAT_NAMES = CATS.map(c => c.name);
+const CAT_MAP   = Object.fromEntries(CATS.map(c => [c.name, c]));
+
+const LS = {
+  KEY:     'cf_api_key',
+  BUDGETS: 'cf_budgets',
+  TXNS:    'cf_transactions',
+  FILE:    'cf_last_file',
+};
+
+// ════════════════════════════════════════════
+//   UTILS
+// ════════════════════════════════════════════
+function fmt(n, sign=false) {
+  const s = Math.abs(n).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
+  return (sign ? (n<0?'−':'+') : '') + '$' + s;
+}
+
+function weekStart(d) {
+  const dt = new Date(d), day = dt.getDay();
+  dt.setDate(dt.getDate() - (day===0 ? 6 : day-1));
+  dt.setHours(0,0,0,0); return dt;
+}
+
+function fmtWeekRange(ws) {
+  const we = new Date(ws); we.setDate(we.getDate()+6);
+  const a = ws.toLocaleDateString('en-AU',{day:'numeric',month:'short'});
+  const b = we.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric'});
+  return `${a} – ${b}`;
+}
+
+// ════════════════════════════════════════════
+//   CSV PARSER — NAB + CBA
+// ════════════════════════════════════════════
+function parseSeparatedRow(line, sep) {
+  const f=[]; let cur='', inQ=false;
+  for(let i=0;i<line.length;i++){
+    const c=line[i];
+    if(c==='"'){ if(inQ&&line[i+1]==='"'){cur+='"';i++;} else inQ=!inQ; }
+    else if(c===sep&&!inQ){f.push(cur.trim());cur='';}
+    else cur+=c;
+  }
+  f.push(cur.trim()); return f;
+}
+
+function parseDate(s) {
+  s=(s||'').replace(/"/g,'').trim(); let m;
+  const mo={Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+  // dd/mm/yyyy
+  if((m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/))) return new Date(+m[3],+m[2]-1,+m[1]);
+  // yyyy-mm-dd
+  if((m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/)))       return new Date(+m[1],+m[2]-1,+m[3]);
+  // dd Mon yyyy  (e.g. 28 Mar 2026)
+  if((m=s.match(/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})$/))) return new Date(+m[3],mo[m[2]]??0,+m[1]);
+  // dd Mon yy  (e.g. 28 Mar 26)  — NAB two-digit year
+  if((m=s.match(/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{2})$/))) {
+    const yr = +m[3] + (+m[3] >= 0 && +m[3] <= 50 ? 2000 : 1900);
+    return new Date(yr, mo[m[2]]??0, +m[1]);
+  }
+  return null;
+}
+
+function parseCSV(text) {
+  // Detect separator: count tabs vs commas in first line
+  const firstLine = text.split(/\r?\n/)[0] || '';
+  const tabs   = (firstLine.match(/\t/g)||[]).length;
+  const commas = (firstLine.match(/,/g)||[]).length;
+  const sep    = tabs > commas ? '\t' : ',';
+
+  const lines = text.trim().split(/\r?\n/).filter(l=>l.trim());
+  if(lines.length<2) throw new Error('CSV appears empty');
+
+  const row0 = parseSeparatedRow(lines[0], sep);
+  const lc   = row0.map(f=>f.toLowerCase().replace(/["']/g,'').trim());
+
+  const hasHeader = lc.some(h=>['date','amount','description','narration','debit','credit','transaction'].some(k=>h.includes(k)));
+  const start = hasHeader ? 1 : 0;
+
+  let dC   = lc.findIndex(h=>h.includes('date'));            if(dC<0)  dC=0;
+  let xC   = lc.findIndex(h=>h.includes('transaction details')||h.includes('narration')||h.includes('description')||h.includes('details')); if(xC<0) xC=2;
+  let mnC  = lc.findIndex(h=>h.includes('merchant name')); // NAB extra column
+  let aC   = lc.findIndex(h=>h==='amount'||(h.includes('amount')&&!h.includes('debit')&&!h.includes('credit'))); if(aC<0) aC=1;
+  let dbC  = lc.findIndex(h=>h==='debit'||h==='debit amount');
+  let crC  = lc.findIndex(h=>h==='credit'||h==='credit amount');
+
+  const txns = [];
+  for(let i=start;i<lines.length;i++){
+    const row = parseSeparatedRow(lines[i], sep);
+    if(row.length<2) continue;
+    const date = parseDate(row[dC]);
+    if(!date||isNaN(date)) continue;
+    let amount;
+    if(dbC>=0&&crC>=0){
+      const d=parseFloat((row[dbC]||'').replace(/[,"$\s]/g,''))||0;
+      const c=parseFloat((row[crC]||'').replace(/[,"$\s]/g,''))||0;
+      amount = c>0 ? c : -d;
+    } else {
+      amount = parseFloat((row[aC]||'').replace(/[,"$\s]/g,''));
+    }
+    if(isNaN(amount)) continue;
+    const details  = (row[xC]||'').replace(/"/g,'').trim();
+    const merchant = mnC>=0 ? (row[mnC]||'').replace(/"/g,'').trim() : '';
+    // Combine both fields — merchant name is often more readable (e.g. "Woolworths" vs "VISA DEBIT PURCHASE 1234")
+    const desc = merchant && merchant !== details ? `${merchant} (${details})` : details || merchant;
+    if(!desc) continue;
+    txns.push({ id:i, date:date.toISOString(), amount, description:desc, category:null });
+  }
+  if(!txns.length) throw new Error('No valid transactions found. Check that your CSV has Date, Amount, and Description columns.');
+  return txns;
+}
+
+function groupByWeek(txns) {
+  const map={};
+  for(const t of txns){
+    const ws=weekStart(new Date(t.date)), k=ws.toISOString();
+    if(!map[k]) map[k]={weekStart:ws.toISOString(), transactions:[]};
+    map[k].transactions.push(t);
+  }
+  return Object.values(map).sort((a,b)=>new Date(b.weekStart)-new Date(a.weekStart));
+}
+
+// ════════════════════════════════════════════
+//   OPENAI CATEGORISATION
+// ════════════════════════════════════════════
+async function categoriseBatch(batch, apiKey) {
+  const prompt = `Categorise each bank transaction into exactly one of: ${CAT_NAMES.join(', ')}.
+
+Rules:
+- Salary/wages/payroll/employer/ATO tax return/refund/cashback → Income
+- Superannuation contributions → Income
+- Woolworths/Coles/Aldi/IGA/Costco/Harris Farm/Foodworks → Groceries
+- Restaurants/cafes/takeaway/UberEats/DoorDash/Menulog/McDonald's/KFC/Hungry Jacks/Guzman/Subway → Dining & Takeaway
+- Petrol/BP/Shell/Caltex/Ampol/Uber/taxi/DiDi/Opal/parking/bus/train/ferry → Transport
+- AGL/Origin/EnergyAustralia/Sydney Water/Telstra/Optus/Vodafone/Aussie Broadband/NBN/electricity/gas/rent/strata → Utilities & Bills
+- Netflix/Spotify/Apple/Google/Adobe/iCloud/Canva/Dropbox/GitHub/recurring monthly subscription → Subscriptions
+- Chemist Warehouse/Priceline/pharmacy/gym/Fitness First/Anytime Fitness/medical/dental/physio/psychology → Health & Fitness
+- Clothing/Zara/H&M/ASOS/The Iconic/David Jones/Myer/JB Hi-Fi/Harvey Norman/Amazon/eBay → Shopping
+- Cinema/Hoyts/Event/bars/pubs/clubs/Ticketek/Eventbrite → Entertainment
+- ATM/cash withdrawal/bank fee/transfer/bpay/everything else → Other
+
+Transactions:
+${batch.map((t,i)=>`${i}. ${t.description} | ${t.amount>=0?'+':''}${t.amount.toFixed(2)}`).join('\n')}
+
+Return ONLY a JSON array, no markdown, no explanation:
+[{"i":0,"cat":"CategoryName"},...]`;
+
+  let resp;
+  try {
+    resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', 'Authorization':'Bearer '+apiKey },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        temperature: 0,
+        max_tokens: 800,
+        messages: [{ role:'user', content:prompt }]
+      })
+    });
+  } catch(e) {
+    throw new Error(
+      'Could not reach OpenAI. If you\'re opening this file directly (file://), '+
+      'try serving it via a local server or deploy to GitHub Pages first. '+
+      'Detail: ' + e.message
+    );
+  }
+  if(resp.status === 401) throw new Error('Invalid OpenAI API key. Check your key at platform.openai.com/api-keys and re-enter it.');
+  if(resp.status === 429) throw new Error('OpenAI rate limit or quota exceeded. Check your usage at platform.openai.com/usage.');
+  if(!resp.ok) {
+    const err = await resp.json().catch(()=>({}));
+    throw new Error(err.error?.message || `OpenAI API error ${resp.status}`);
+  }
+  const data = await resp.json();
+  const txt  = data.choices?.[0]?.message?.content || '[]';
+  try {
+    const res = JSON.parse(txt.replace(/```json?|```/g,'').trim());
+    return batch.map((t,i)=>{
+      const found = res.find(x=>x.i===i);
+      return { ...t, category: CAT_NAMES.includes(found?.cat) ? found.cat : 'Other' };
+    });
+  } catch {
+    return batch.map(t=>({...t, category:'Other'}));
+  }
+}
+
+// ════════════════════════════════════════════
+//   EXPORT / IMPORT
+// ════════════════════════════════════════════
+function exportData() {
+  const txns = localStorage.getItem(LS.TXNS);
+  if(!txns) return;
+  const payload = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    lastFile: localStorage.getItem(LS.FILE) || '',
+    budgets: state.budgets,
+    transactions: JSON.parse(txns),
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  const date = new Date().toISOString().slice(0,10);
+  a.href     = url;
+  a.download = `cashflow-backup-${date}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importData(file) {
+  if(!file?.name?.toLowerCase().endsWith('.json')) {
+    state.error = 'Please select a cashflow backup .json file';
+    render(); return;
+  }
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const payload = JSON.parse(e.target.result);
+      if(!payload.transactions || !Array.isArray(payload.transactions))
+        throw new Error('Invalid backup file — missing transactions array');
+      // Restore budgets
+      if(payload.budgets) {
+        state.budgets = payload.budgets;
+        localStorage.setItem(LS.BUDGETS, JSON.stringify(payload.budgets));
+      }
+      // Restore transactions
+      localStorage.setItem(LS.TXNS, JSON.stringify(payload.transactions));
+      localStorage.setItem(LS.FILE, payload.lastFile || 'imported backup');
+      state.lastFile = payload.lastFile || 'imported backup';
+      state.weeks = groupByWeek(payload.transactions);
+      state.wi = 0; state.selectedCat = null; state.error = null;
+      state.stage = 'dashboard';
+      render();
+    } catch(err) {
+      state.error = 'Could not read backup: ' + err.message;
+      render();
+    }
+  };
+  reader.readAsText(file);
+}
+
+// ════════════════════════════════════════════
+//   STATE
+// ════════════════════════════════════════════
+const state = {
+  stage: 'onboard',   // onboard | upload | processing | dashboard
+  apiKey: '',
+  weeks: [],
+  wi: 0,
+  budgets: {},
+  editBudget: null,
+  editBudgetVal: '',
+  progress: { done:0, total:0 },
+  error: null,
+  dragging: false,
+  selectedCat: null,
+  lastFile: null,
+};
+
+// Load persisted state
+(function init() {
+  const key = localStorage.getItem(LS.KEY);
+  if(key) { state.apiKey=key; state.stage='upload'; }
+
+  const savedBudgets = localStorage.getItem(LS.BUDGETS);
+  state.budgets = savedBudgets
+    ? JSON.parse(savedBudgets)
+    : Object.fromEntries(CATS.filter(c=>!c.isIncome).map(c=>[c.name,c.budget]));
+
+  const savedTxns = localStorage.getItem(LS.TXNS);
+  if(savedTxns) {
+    const txns = JSON.parse(savedTxns);
+    state.weeks = groupByWeek(txns);
+    state.lastFile = localStorage.getItem(LS.FILE);
+  }
+})();
+
+// ════════════════════════════════════════════
+//   RENDER
+// ════════════════════════════════════════════
+function render() {
+  const app = document.getElementById('app');
+  app.innerHTML = '';
+
+  if(state.stage==='onboard')    app.appendChild(renderOnboard());
+  else if(state.stage==='upload')     app.appendChild(renderUpload());
+  else if(state.stage==='processing') app.appendChild(renderProcessing());
+  else if(state.stage==='dashboard')  app.appendChild(renderDashboard());
+}
+
+// ── Onboard ──────────────────────────────────
+function renderOnboard() {
+  const wrap = el('div',{class:'onboard-wrap'});
+  const card = el('div',{class:'onboard-card'});
+
+  card.append(
+    el('div',{class:'eyebrow',text:'Cashflow'}),
+    el('h1',{class:'onboard-title serif',text:'Weekly budget\ntracker.'}),
+    el('p',{class:'onboard-sub',text:'Upload your NAB or CBA transaction CSV and Claude will automatically categorise everything for you.'}),
+  );
+
+  const label = el('div',{class:'field-label',text:'OpenAI API Key'});
+  const input = el('input',{
+    class:'input', type:'password',
+    placeholder:'sk-proj-...',
+    value: state.apiKey || '',
+  });
+  const saveBtn = el('button',{class:'btn btn-primary',text:'Get started →', style:'width:100%;margin-top:14px;'});
+
+  const err = el('div',{style:'color:var(--red);font-size:13px;margin-top:10px;display:none;'});
+
+  saveBtn.addEventListener('click', async ()=>{
+    const k = input.value.trim();
+    if(!k||!k.startsWith('sk-')) { err.style.display='block'; err.textContent='Enter a valid OpenAI API key (starts with sk-)'; return; }
+    err.style.display='none';
+    saveBtn.textContent='Testing key...'; saveBtn.disabled=true;
+    try {
+      const r = await fetch('https://api.openai.com/v1/models', { headers:{'Authorization':'Bearer '+k} });
+      if(r.status===401) throw new Error('Key rejected by OpenAI — check it is correct and active.');
+      if(!r.ok) throw new Error(`OpenAI returned status ${r.status}`);
+    } catch(e) {
+      err.style.display='block';
+      err.textContent = e.message.includes('fetch') 
+        ? 'Network error — are you opening this as a local file? Deploy to GitHub Pages first.'
+        : e.message;
+      saveBtn.textContent='Get started →'; saveBtn.disabled=false;
+      return;
+    }
+    state.apiKey=k;
+    localStorage.setItem(LS.KEY,k);
+    state.stage='upload';
+    render();
+  });
+
+  const hint = el('div',{class:'key-hint'});
+  hint.innerHTML = 'Get your key at <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com/api-keys</a>. Your key is stored only in your browser\'s localStorage and never sent anywhere except OpenAI.';
+
+  const footer = el('div',{class:'onboard-footer'});
+  const cost = el('div',{class:'cost-note'});
+  cost.innerHTML = '💡 Uses <strong>gpt-4o-mini</strong> — categorising 200 transactions costs under <strong>$0.01 USD</strong>.';
+  footer.appendChild(cost);
+
+  card.append(label,input,err,saveBtn,hint,footer);
+  wrap.appendChild(card);
+  return wrap;
+}
+
+// ── Upload ────────────────────────────────────
+function renderUpload() {
+  const wrap = el('div',{class:'upload-wrap'});
+  wrap.append(
+    el('div',{class:'eyebrow',text:'Cashflow', style:'text-align:center'}),
+    el('h1',{class:'upload-heading serif', text:'Your money,\nweek by week.'}),
+    el('p',{class:'upload-sub', text:'Drop a CSV from NAB or Commonwealth Bank. Transactions are automatically categorised.'}),
+  );
+
+  const zone = el('div',{class:'dropzone'});
+  const fileInput = el('input',{type:'file',accept:'.csv',style:'display:none'});
+  zone.append(
+    el('div',{class:'dropzone-icon',text:'📂'}),
+    el('div',{class:'dropzone-title',text:'Drop your CSV here'}),
+    el('div',{class:'dropzone-hint',text:'or click to browse'}),
+    fileInput,
+  );
+  const chips = el('div',{class:'chip-row'});
+  ['NAB','Commonwealth Bank'].forEach(b=>chips.appendChild(el('span',{class:'chip',text:b})));
+  zone.appendChild(chips);
+
+  zone.addEventListener('click',()=>fileInput.click());
+  zone.addEventListener('dragover',e=>{e.preventDefault();zone.classList.add('drag');});
+  zone.addEventListener('dragleave',()=>zone.classList.remove('drag'));
+  zone.addEventListener('drop',e=>{e.preventDefault();zone.classList.remove('drag');handleFile(e.dataTransfer.files[0]);});
+  fileInput.addEventListener('change',e=>handleFile(e.target.files[0]));
+  wrap.appendChild(zone);
+
+  if(state.error) {
+    const err = el('div',{class:'err-banner',text:'⚠️ '+state.error});
+    wrap.appendChild(err);
+  }
+
+  // Divider
+  const divider = el('div',{style:'display:flex;align-items:center;gap:12px;width:100%;max-width:480px;margin-top:20px;'});
+  divider.append(
+    el('div',{style:'flex:1;height:1px;background:var(--border)'}),
+    el('span',{style:'font-size:12px;color:var(--dim);white-space:nowrap;',text:'or restore from backup'}),
+    el('div',{style:'flex:1;height:1px;background:var(--border)'}),
+  );
+  wrap.appendChild(divider);
+
+  // Import area
+  const importInput = el('input',{type:'file',accept:'.json',style:'display:none'});
+  const importBtn = el('button',{class:'btn btn-ghost',style:'margin-top:12px;'});
+  importBtn.innerHTML = '↓ Import backup <span style="font-size:11px;color:var(--dim2);margin-left:4px;">.json</span>';
+  importBtn.addEventListener('click',()=>importInput.click());
+  importInput.addEventListener('change',e=>importData(e.target.files[0]));
+  wrap.append(importInput, importBtn);
+
+  // Show cached data notice
+  if(state.weeks.length && state.lastFile) {
+    const note = el('div',{class:'cached-note'});
+    note.innerHTML = `📁 <span>Last upload: <strong>${state.lastFile}</strong></span>`;
+    const viewBtn = el('button',{text:'View →'});
+    viewBtn.addEventListener('click',()=>{ state.stage='dashboard'; state.error=null; render(); });
+    note.appendChild(viewBtn);
+    wrap.appendChild(note);
+  }
+
+  // Settings link
+  const settings = el('div',{style:'margin-top:20px;text-align:center;'});
+  const resetKey = el('button',{class:'btn btn-ghost',style:'font-size:12px;padding:6px 14px;',text:'Change API key'});
+  resetKey.addEventListener('click',()=>{ state.stage='onboard'; render(); });
+  settings.appendChild(resetKey);
+  wrap.appendChild(settings);
+
+  return wrap;
+}
+
+async function handleFile(file) {
+  if(!file) return;
+  if(!file.name.toLowerCase().endsWith('.csv')) { state.error='Please upload a .csv file'; render(); return; }
+  state.error=null;
+
+  let txns;
+  try {
+    const text = await file.text();
+    txns = parseCSV(text);
+  } catch(e) { state.error=e.message; render(); return; }
+
+  state.stage='processing';
+  const BATCH=25;
+  const batches = Array.from({length:Math.ceil(txns.length/BATCH)},(_,i)=>txns.slice(i*BATCH,(i+1)*BATCH));
+  state.progress={ done:0, total:batches.length };
+  render();
+
+  let all=[];
+  try {
+    for(let i=0;i<batches.length;i++){
+      all=[...all,...(await categoriseBatch(batches[i],state.apiKey))];
+      state.progress.done=i+1;
+      render();
+    }
+  } catch(e) {
+    state.error=e.message; state.stage='upload'; render(); return;
+  }
+
+  // Persist
+  localStorage.setItem(LS.TXNS,JSON.stringify(all));
+  localStorage.setItem(LS.FILE,file.name);
+  state.lastFile=file.name;
+  state.weeks=groupByWeek(all);
+  state.wi=0; state.selectedCat=null;
+  state.stage='dashboard'; render();
+}
+
+// ── Processing ────────────────────────────────
+function renderProcessing() {
+  const p=state.progress;
+  const pct=p.total ? Math.round((p.done/p.total)*100) : 0;
+  const wrap=el('div',{class:'proc-wrap'});
+  wrap.append(
+    el('div',{class:'proc-icon',text:'🤖'}),
+    (() => { const d=el('div',{style:'text-align:center'}); d.append(el('div',{class:'proc-title',text:'Categorising your transactions'}),el('div',{class:'proc-sub',text:`Processing ${p.total*25} transactions with gpt-4o-mini...`})); return d; })(),
+    (() => { const t=el('div',{class:'prog-track'}); const f=el('div',{class:'prog-fill',style:`width:${pct}%`}); t.appendChild(f); return t; })(),
+    el('div',{class:'proc-pct mono',text:`${p.done} / ${p.total} batches · ${pct}%`}),
+  );
+  return wrap;
+}
+
+// ── Dashboard ─────────────────────────────────
+function renderDashboard() {
+  const wrap=el('div',{class:'page-wrap'});
+
+  // Header
+  const hdr=el('div',{class:'dash-header'});
+  const hLeft=el('div');
+  hLeft.append(el('div',{class:'eyebrow',text:'Cashflow'}),el('div',{class:'dash-title serif',text:'Weekly Budget'}));
+  const hRight=el('div',{class:'dash-actions'});
+  const exportBtn=el('button',{class:'btn btn-ghost',text:'↓ Export backup'});
+  exportBtn.addEventListener('click',()=>exportData());
+  const newBtn=el('button',{class:'btn btn-ghost',text:'↑ Upload new'});
+  newBtn.addEventListener('click',()=>{ state.stage='upload'; state.selectedCat=null; render(); });
+  hRight.append(exportBtn, newBtn);
+  hdr.append(hLeft,hRight);
+  wrap.appendChild(hdr);
+
+  const week=state.weeks[state.wi];
+  const txns=week?.transactions||[];
+
+  // Totals
+  const totals=Object.fromEntries(CAT_NAMES.map(c=>[c,0]));
+  for(const t of txns){
+    if(t.amount>0) totals['Income']+=t.amount;
+    else totals[t.category||'Other']+=Math.abs(t.amount);
+  }
+  const income=totals['Income'];
+  const spend=CATS.filter(c=>!c.isIncome).reduce((s,c)=>s+totals[c.name],0);
+  const net=income-spend;
+
+  // Week nav
+  const nav=el('div',{class:'week-nav'});
+  const prev=el('button',{class:'nav-btn',text:'‹'});
+  const next=el('button',{class:'nav-btn',text:'›'});
+  prev.disabled=state.wi>=state.weeks.length-1;
+  next.disabled=state.wi<=0;
+  prev.addEventListener('click',()=>{ state.wi=Math.min(state.wi+1,state.weeks.length-1); state.selectedCat=null; render(); });
+  next.addEventListener('click',()=>{ state.wi=Math.max(state.wi-1,0); state.selectedCat=null; render(); });
+  const navMid=el('div',{style:'text-align:center'});
+  navMid.append(
+    el('div',{class:'week-range',text:week?fmtWeekRange(new Date(week.weekStart)):''}),
+    el('div',{class:'week-meta',text:`${txns.length} transactions · Week ${state.weeks.length-state.wi} of ${state.weeks.length}`})
+  );
+  nav.append(prev,navMid,next);
+  wrap.appendChild(nav);
+
+  // Summary
+  const sumRow=el('div',{class:'summary-row'});
+  [
+    {label:'Income', val:income, color:'var(--green)'},
+    {label:'Spend',  val:spend,  color:'var(--text)'},
+    {label:'Net',    val:net,    color:net>=0?'var(--green)':'var(--red)', sign:true},
+  ].forEach(({label,val,color,sign})=>{
+    const card=el('div',{class:'s-card'});
+    card.append(el('div',{class:'s-label',text:label}),el('div',{class:'s-val mono',style:`color:${color}`,text:fmt(val,!!sign)}));
+    sumRow.appendChild(card);
+  });
+  wrap.appendChild(sumRow);
+
+  // Category cards
+  const grid=el('div',{class:'cats-grid'});
+  CATS.forEach(cat=>{
+    const spent=totals[cat.name];
+    const budget=cat.isIncome?null:state.budgets[cat.name];
+    const pct=budget?Math.min((spent/budget)*100,100):0;
+    const over=budget&&spent>budget;
+    const isActive=state.selectedCat===cat.name;
+
+    const card=el('div',{class:'cat-card'+(isActive?' active':'')});
+    if(isActive) card.style.setProperty('--active-color',cat.color);
+
+    const top=el('div',{class:'cat-top'});
+    const left=el('div',{class:'cat-left'});
+    const dot=el('div',{class:'cat-dot',style:`background:${cat.color}`});
+    left.append(dot,el('span',{class:'cat-name',text:cat.name}));
+
+    const right=el('div',{class:'cat-right'});
+    const spentEl=el('span',{class:'cat-spent',text:fmt(spent)});
+    spentEl.style.color=cat.isIncome?'var(--green)':over?'var(--red)':'var(--text)';
+    right.appendChild(spentEl);
+
+    if(!cat.isIncome){
+      if(over){
+        const badge=el('span',{class:'over-badge',text:'over'});
+        right.appendChild(badge);
+      }
+
+      if(state.editBudget===cat.name){
+        const inp=el('input',{class:'budget-inline-input',value:state.editBudgetVal});
+        inp.addEventListener('click',e=>e.stopPropagation());
+        inp.addEventListener('input',e=>state.editBudgetVal=e.target.value);
+        inp.addEventListener('blur',()=>commitBudget(cat.name));
+        inp.addEventListener('keydown',e=>{
+          if(e.key==='Enter') commitBudget(cat.name);
+          if(e.key==='Escape'){state.editBudget=null;render();}
+          e.stopPropagation();
+        });
+        right.appendChild(inp);
+        setTimeout(()=>inp.focus(),10);
+      } else {
+        const editBtn=el('button',{class:'budget-edit-btn',text:'/ '+fmt(budget)});
+        editBtn.addEventListener('click',e=>{
+          e.stopPropagation();
+          state.editBudget=cat.name;
+          state.editBudgetVal=String(budget||0);
+          render();
+        });
+        right.appendChild(editBtn);
+      }
+    }
+
+    top.append(left,right);
+    card.appendChild(top);
+
+    if(!cat.isIncome){
+      const track=el('div',{class:'track'});
+      const fill=el('div',{class:'track-fill',style:`width:${pct}%;background:${over?'var(--red)':cat.color}`});
+      track.appendChild(fill);
+      card.appendChild(track);
+    }
+
+    card.addEventListener('click',()=>{
+      state.selectedCat=state.selectedCat===cat.name?null:cat.name;
+      render();
+    });
+    grid.appendChild(card);
+  });
+  wrap.appendChild(grid);
+
+  // Transaction panel
+  if(state.selectedCat){
+    const cat=CAT_MAP[state.selectedCat];
+    const catTxns=txns.filter(t=>state.selectedCat==='Income'?t.amount>0:(t.category===state.selectedCat&&t.amount<0))
+                      .sort((a,b)=>new Date(b.date)-new Date(a.date));
+
+    const panel=el('div',{class:'txn-panel'});
+    const ph=el('div',{class:'txn-ph'});
+    const title=el('div',{class:'txn-ph-title'});
+    title.append(el('div',{class:'cat-dot',style:`background:${cat.color}`}),el('span',{text:state.selectedCat}));
+    ph.append(title,el('span',{class:'txn-count',text:catTxns.length+' transactions'}));
+    panel.appendChild(ph);
+
+    if(!catTxns.length){
+      panel.appendChild(el('div',{class:'empty-state',text:'No transactions in this category this week'}));
+    } else {
+      catTxns.forEach(t=>{
+        const row=el('div',{class:'txn-row'});
+        const left=el('div',{style:'min-width:0'});
+        left.append(el('div',{class:'txn-desc',text:t.description}),el('div',{class:'txn-date',text:new Date(t.date).toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'})}));
+        const amt=el('div',{class:'txn-amt',text:fmt(t.amount,true)});
+        amt.style.color=t.amount>0?'var(--green)':'var(--text)';
+        row.append(left,amt);
+        panel.appendChild(row);
+      });
+    }
+    wrap.appendChild(panel);
+  }
+
+  return wrap;
+}
+
+function commitBudget(catName){
+  const v=parseFloat(state.editBudgetVal);
+  if(!isNaN(v)&&v>=0){
+    state.budgets[catName]=v;
+    localStorage.setItem(LS.BUDGETS,JSON.stringify(state.budgets));
+  }
+  state.editBudget=null;
+  render();
+}
+
+// ════════════════════════════════════════════
+//   DOM HELPER
+// ════════════════════════════════════════════
+function el(tag,props={}) {
+  const e=document.createElement(tag);
+  Object.entries(props).forEach(([k,v])=>{
+    if(k==='text') e.textContent=v;
+    else if(k==='class') e.className=v;
+    else if(k==='style') e.style.cssText=v;
+    else e[k]=v;
+  });
+  return e;
+}
+
+// ════════════════════════════════════════════
+//   BOOT
+// ════════════════════════════════════════════
+render();
+</script>
+</body>
+</html>
