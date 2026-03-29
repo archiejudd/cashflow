@@ -316,20 +316,24 @@ const CATS = [
 const CAT_NAMES = CATS.map(c => c.name);
 const CAT_MAP   = Object.fromEntries(CATS.map(c => [c.name, c]));
 
-// ── Change this to whatever password you want ──
-const APP_PASSWORD = 'judd2026';
-// ───────────────────────────────────────────────
+// ── Paste your Apps Script Web App URL here after setup ──
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyAgJ93lAQ9goFMPzJiRiS1DaUg-NNoW5QiCoMVJPHAUVhVc0fgy6i0a9rzFPqjlfT3nw/exec';
+// ─────────────────────────────────────────────────────────
 
 const LS = {
-  KEY:     'cf_api_key',
   BUDGETS: 'cf_budgets',
   FREQS:   'cf_freqs',
-  TXNS:    'cf_transactions',
-  FILE:    'cf_last_file',
 };
 
 const FREQ_DIVISOR = { monthly: 1, quarterly: 3, annually: 12 };
 const FREQ_LABEL   = { monthly: '/mo', quarterly: '/qtr', annually: '/yr' };
+
+function defaultBudgets() {
+  return Object.fromEntries(CATS.filter(c=>!c.isIncome&&!c.isTransfer).map(c=>[c.name,c.budget]));
+}
+function defaultFreqs() {
+  return Object.fromEntries(CATS.filter(c=>!c.isIncome&&!c.isTransfer).map(c=>[c.name,c.freq||'monthly']));
+}
 
 // Monthly equivalent budget for bar calculation
 function monthlyBudget(catName) {
@@ -337,6 +341,24 @@ function monthlyBudget(catName) {
   if(!budget) return null;
   const freq = state.freqs[catName] || 'monthly';
   return budget / FREQ_DIVISOR[freq];
+}
+
+// ── Apps Script API helper ────────────────────
+async function api(action, body) {
+  if(!SCRIPT_URL) throw new Error('SCRIPT_URL not set in the HTML file. Follow the setup instructions.');
+  let resp;
+  if(!body) {
+    resp = await fetch(`${SCRIPT_URL}?action=${encodeURIComponent(action)}`);
+  } else {
+    resp = await fetch(SCRIPT_URL, {
+      method: 'POST',
+      body: JSON.stringify({ action, ...body }),
+    });
+  }
+  if(!resp.ok) throw new Error(`HTTP ${resp.status} from Apps Script`);
+  const data = await resp.json();
+  if(data.error) throw new Error(data.error);
+  return data;
 }
 
 // ════════════════════════════════════════════
@@ -359,6 +381,10 @@ function randomQuote() {
   const q = QUOTES[Math.floor(Math.random() * QUOTES.length)];
   return `"${q.text}" — ${q.author}`;
 }
+
+// ── Change this to whatever password you want ──
+const APP_PASSWORD = 'judd2026';
+// ───────────────────────────────────────────────
 
 // ════════════════════════════════════════════
 //   AUTH
@@ -392,7 +418,7 @@ function renderPassword() {
   const attempt = () => {
     if(input.value === APP_PASSWORD) {
       setAuthed();
-      render();
+      loadFromSheet();
     } else {
       err.style.display = 'block';
       input.value = '';
@@ -526,92 +552,36 @@ function mostRecentDate(txns) {
 }
 
 // ════════════════════════════════════════════
-//   OPENAI CATEGORISATION
+//   CATEGORISATION (via Apps Script → OpenAI)
 // ════════════════════════════════════════════
-async function categoriseBatch(batch, apiKey) {
-  const prompt = `Categorise each bank transaction into exactly one of: ${CAT_NAMES.join(', ')}.
-
-Rules:
-- TRANSFER CREDIT / TRANSFER DEBIT / any transfer between own accounts / "Linked Acc" / "Own Transfer" / inter-account movements → Internal Transfers
-- Mortgage repayments / home loan payments → Mortgage
-- Strata fees / body corporate / owners corporation levies → Strata Fees
-- Health insurance / car insurance / home insurance / life insurance / income protection → Insurance
-- Doctor / GP / specialist / dentist / optometrist / pathology / radiology / hospital / Medicare / pharmacy prescriptions → Medical
-- Salary/wages/payroll/employer payments/ATO tax return → Income
-- Superannuation contributions received → Income
-- Woolworths/Coles/Aldi/IGA/Costco/Harris Farm/Foodworks → Groceries
-- Restaurants/cafes/takeaway/UberEats/DoorDash/Menulog/McDonald's/KFC/Hungry Jacks/Guzman/Subway → Dining & Takeaway
-- Petrol/BP/Shell/Caltex/Ampol/Uber/taxi/DiDi/Opal/parking/bus/train/ferry → Transport
-- AGL/Origin/EnergyAustralia/Sydney Water/Telstra/Optus/Vodafone/Aussie Broadband/NBN/electricity/gas/rent → Utilities & Bills
-- Netflix/Spotify/Apple/Google/Adobe/iCloud/Canva/Dropbox/GitHub/recurring monthly subscription → Subscriptions
-- Gym/Fitness First/Anytime Fitness/exercise/sport (non-medical) → Health & Fitness
-- Clothing/Zara/H&M/ASOS/The Iconic/David Jones/Myer/JB Hi-Fi/Harvey Norman/Amazon/eBay → Shopping
-- Cinema/Hoyts/Event/bars/pubs/clubs/Ticketek/Eventbrite → Entertainment
-- ATM/cash withdrawal/bank fee/bpay/everything else → Other
-
-Transactions (type | description | amount):
-${batch.map((t,i)=>`${i}. ${t.txnType||'UNKNOWN'} | ${t.description} | ${t.amount>=0?'+':''}${t.amount.toFixed(2)}`).join('\n')}
-
-Return ONLY a JSON array, no markdown, no explanation:
-[{"i":0,"cat":"CategoryName"},...]`;
-
-  let resp;
-  try {
-    resp = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type':'application/json', 'Authorization':'Bearer '+apiKey },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        temperature: 0,
-        max_tokens: 800,
-        messages: [{ role:'user', content:prompt }]
-      })
-    });
-  } catch(e) {
-    throw new Error(
-      'Could not reach OpenAI. If you\'re opening this file directly (file://), '+
-      'try serving it via a local server or deploy to GitHub Pages first. '+
-      'Detail: ' + e.message
-    );
-  }
-  if(resp.status === 401) throw new Error('Invalid OpenAI API key. Check your key at platform.openai.com/api-keys and re-enter it.');
-  if(resp.status === 429) throw new Error('OpenAI rate limit or quota exceeded. Check your usage at platform.openai.com/usage.');
-  if(!resp.ok) {
-    const err = await resp.json().catch(()=>({}));
-    throw new Error(err.error?.message || `OpenAI API error ${resp.status}`);
-  }
-  const data = await resp.json();
-  const txt  = data.choices?.[0]?.message?.content || '[]';
-  try {
-    const res = JSON.parse(txt.replace(/```json?|```/g,'').trim());
-    return batch.map((t,i)=>{
-      const found = res.find(x=>x.i===i);
-      return { ...t, category: CAT_NAMES.includes(found?.cat) ? found.cat : 'Other' };
-    });
-  } catch {
-    return batch.map(t=>({...t, category:'Other'}));
-  }
+async function categoriseBatch(batch) {
+  const data = await api('categorise', { batch, categories: CAT_NAMES });
+  const res  = data.categories || [];
+  return batch.map((t, i) => {
+    const found = res.find(x => x.i === i);
+    return { ...t, category: CAT_NAMES.includes(found?.cat) ? found.cat : 'Other' };
+  });
 }
 
 // ════════════════════════════════════════════
-//   EXPORT / IMPORT
+//   EXPORT / IMPORT (JSON backup — still useful)
 // ════════════════════════════════════════════
 function exportData() {
-  const txns = localStorage.getItem(LS.TXNS);
-  if(!txns) return;
+  const allTxns = state.weeks.flatMap(w => w.transactions);
+  if(!allTxns.length) return;
   const payload = {
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
-    lastFile: localStorage.getItem(LS.FILE) || '',
-    budgets: state.budgets,
-    transactions: JSON.parse(txns),
+    lastFile: state.lastFile || '',
+    budgets:  state.budgets,
+    freqs:    state.freqs,
+    transactions: allTxns,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
-  const date = new Date().toISOString().slice(0,10);
   a.href     = url;
-  a.download = `cashflow-backup-${date}.json`;
+  a.download = `judd-cashflow-backup-${new Date().toISOString().slice(0,10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -622,26 +592,23 @@ function importData(file) {
     render(); return;
   }
   const reader = new FileReader();
-  reader.onload = e => {
+  reader.onload = async e => {
     try {
       const payload = JSON.parse(e.target.result);
       if(!payload.transactions || !Array.isArray(payload.transactions))
-        throw new Error('Invalid backup file — missing transactions array');
-      // Restore budgets
-      if(payload.budgets) {
-        state.budgets = payload.budgets;
-        localStorage.setItem(LS.BUDGETS, JSON.stringify(payload.budgets));
-      }
-      // Restore transactions
-      localStorage.setItem(LS.TXNS, JSON.stringify(payload.transactions));
-      localStorage.setItem(LS.FILE, payload.lastFile || 'imported backup');
+        throw new Error('Invalid backup — missing transactions array');
+      state.budgets  = payload.budgets || defaultBudgets();
+      state.freqs    = payload.freqs   || defaultFreqs();
       state.lastFile = payload.lastFile || 'imported backup';
-      state.weeks = groupByMonth(payload.transactions);
+      state.weeks    = groupByMonth(payload.transactions);
       state.wi = 0; state.selectedCat = null; state.error = null;
       state.stage = 'dashboard';
       render();
+      // Push to sheet in background
+      await api('saveTransactions', { transactions: payload.transactions, fileName: state.lastFile });
+      await api('saveBudgets', { budgets: state.budgets, freqs: state.freqs });
     } catch(err) {
-      state.error = 'Could not read backup: ' + err.message;
+      state.error = 'Import failed: ' + err.message;
       render();
     }
   };
@@ -652,8 +619,7 @@ function importData(file) {
 //   STATE
 // ════════════════════════════════════════════
 const state = {
-  stage: 'onboard',
-  apiKey: '',
+  stage: 'loading',   // loading | setup-key | upload | processing | dashboard
   weeks: [],
   wi: 0,
   budgets: {},
@@ -667,26 +633,41 @@ const state = {
   lastFile: null,
 };
 
-// Load persisted state
+async function loadFromSheet() {
+  state.stage = 'loading'; state.error = null;
+  render();
+  try {
+    const data = await api('getData');
+    state.budgets  = Object.keys(data.budgets||{}).length  ? data.budgets  : defaultBudgets();
+    state.freqs    = Object.keys(data.freqs||{}).length    ? data.freqs    : defaultFreqs();
+    state.lastFile = data.lastFile || null;
+    if(!data.hasApiKey) { state.stage = 'setup-key'; render(); return; }
+    if(data.transactions.length > 0) {
+      state.weeks = groupByMonth(data.transactions);
+      state.wi    = 0;
+      state.stage = 'dashboard';
+    } else {
+      state.stage = 'upload';
+    }
+  } catch(e) {
+    state.error = e.message;
+    state.budgets = defaultBudgets();
+    state.freqs   = defaultFreqs();
+    state.stage = 'upload';
+  }
+  render();
+}
+
+// Boot
 (function init() {
-  const key = localStorage.getItem(LS.KEY);
-  if(key) { state.apiKey=key; state.stage='upload'; }
-
-  const savedBudgets = localStorage.getItem(LS.BUDGETS);
-  state.budgets = savedBudgets
-    ? JSON.parse(savedBudgets)
-    : Object.fromEntries(CATS.filter(c=>!c.isIncome&&!c.isTransfer).map(c=>[c.name,c.budget]));
-
-  const savedFreqs = localStorage.getItem(LS.FREQS);
-  state.freqs = savedFreqs
-    ? JSON.parse(savedFreqs)
-    : Object.fromEntries(CATS.filter(c=>!c.isIncome&&!c.isTransfer).map(c=>[c.name,c.freq||'monthly']));
-
-  const savedTxns = localStorage.getItem(LS.TXNS);
-  if(savedTxns) {
-    const txns = JSON.parse(savedTxns);
-    state.weeks = groupByMonth(txns);
-    state.lastFile = localStorage.getItem(LS.FILE);
+  state.budgets = defaultBudgets();
+  state.freqs   = defaultFreqs();
+  if(isAuthed()) {
+    state.stage = 'loading';
+    render();
+    loadFromSheet();
+  } else {
+    render();
   }
 })();
 
@@ -696,68 +677,62 @@ const state = {
 function render() {
   const app = document.getElementById('app');
   app.innerHTML = '';
-
-  if(!isAuthed())                  { app.appendChild(renderPassword());   return; }
-  if(state.stage==='onboard')      { app.appendChild(renderOnboard());    return; }
-  if(state.stage==='upload')       { app.appendChild(renderUpload());     return; }
-  if(state.stage==='processing')   { app.appendChild(renderProcessing()); return; }
-  if(state.stage==='dashboard')      app.appendChild(renderDashboard());
+  if(!isAuthed())                    { app.appendChild(renderPassword());  return; }
+  if(state.stage==='loading')        { app.appendChild(renderLoading());   return; }
+  if(state.stage==='setup-key')      { app.appendChild(renderSetupKey());  return; }
+  if(state.stage==='upload')         { app.appendChild(renderUpload());    return; }
+  if(state.stage==='processing')     { app.appendChild(renderProcessing());return; }
+  if(state.stage==='dashboard')        app.appendChild(renderDashboard());
 }
 
-// ── Onboard ──────────────────────────────────
-function renderOnboard() {
+// ── Loading ───────────────────────────────────
+function renderLoading() {
+  const wrap = el('div',{class:'proc-wrap'});
+  const spinner = el('div',{class:'proc-icon', text:'📊'});
+  const title   = el('div',{class:'proc-title', text:'Loading your data…'});
+  const sub     = el('div',{class:'proc-sub',   text:'Fetching from Google Sheets'});
+  wrap.append(spinner, title, sub);
+  if(state.error) {
+    const e = el('div',{class:'err-banner', style:'max-width:400px;margin-top:16px;', text:'⚠️ '+state.error});
+    wrap.appendChild(e);
+  }
+  return wrap;
+}
+
+// ── Setup: API key entry (first time only) ────
+function renderSetupKey() {
   const wrap = el('div',{class:'onboard-wrap'});
   const card = el('div',{class:'onboard-card'});
-
   card.append(
-    el('div',{class:'eyebrow',text:'Judd Cashflow'}),
-    el('h1',{class:'onboard-title serif',text:'Weekly budget\ntracker.'}),
-    el('p',{class:'onboard-sub',text:'Upload your NAB or CBA transaction CSV and Claude will automatically categorise everything for you.'}),
+    el('div',{class:'eyebrow', text:'Judd Cashflow'}),
+    el('h1', {class:'onboard-title serif', text:'One-time setup.'}),
+    el('p',  {class:'onboard-sub', text:'Enter your OpenAI API key. It will be stored securely in your Google Apps Script — no browser, no leaks.'}),
   );
-
-  const label = el('div',{class:'field-label',text:'OpenAI API Key'});
-  const input = el('input',{
-    class:'input', type:'password',
-    placeholder:'sk-proj-...',
-    value: state.apiKey || '',
-  });
-  const saveBtn = el('button',{class:'btn btn-primary',text:'Get started →', style:'width:100%;margin-top:14px;'});
-
-  const err = el('div',{style:'color:var(--red);font-size:13px;margin-top:10px;display:none;'});
-
-  saveBtn.addEventListener('click', async ()=>{
-    const k = input.value.trim();
-    if(!k||!k.startsWith('sk-')) { err.style.display='block'; err.textContent='Enter a valid OpenAI API key (starts with sk-)'; return; }
-    err.style.display='none';
-    saveBtn.textContent='Testing key...'; saveBtn.disabled=true;
-    try {
-      const r = await fetch('https://api.openai.com/v1/models', { headers:{'Authorization':'Bearer '+k} });
-      if(r.status===401) throw new Error('Key rejected by OpenAI — check it is correct and active.');
-      if(!r.ok) throw new Error(`OpenAI returned status ${r.status}`);
-    } catch(e) {
-      err.style.display='block';
-      err.textContent = e.message.includes('fetch') 
-        ? 'Network error — are you opening this as a local file? Deploy to GitHub Pages first.'
-        : e.message;
-      saveBtn.textContent='Get started →'; saveBtn.disabled=false;
-      return;
-    }
-    state.apiKey=k;
-    localStorage.setItem(LS.KEY,k);
-    state.stage='upload';
-    render();
-  });
-
-  const hint = el('div',{class:'key-hint'});
-  hint.innerHTML = 'Get your key at <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com/api-keys</a>. Your key is stored only in your browser\'s localStorage and never sent anywhere except OpenAI.';
-
-  const footer = el('div',{class:'onboard-footer'});
-  const cost = el('div',{class:'cost-note'});
+  const label  = el('div',{class:'field-label', text:'OpenAI API Key'});
+  const input  = el('input',{class:'input', type:'password', placeholder:'sk-proj-...'});
+  const btn    = el('button',{class:'btn btn-primary', text:'Save & continue →', style:'width:100%;margin-top:14px;'});
+  const err    = el('div',{style:'color:var(--red);font-size:13px;margin-top:10px;display:none;'});
+  const hint   = el('div',{class:'key-hint'});
+  hint.innerHTML = 'Get your key at <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com/api-keys</a>. Your key is sent once to your private Apps Script and stored there — it never touches any browser again.';
+  const cost   = el('div',{class:'cost-note', style:'margin-top:14px;'});
   cost.innerHTML = '💡 Uses <strong>gpt-4o-mini</strong> — categorising 200 transactions costs under <strong>$0.01 USD</strong>.';
-  footer.appendChild(cost);
 
-  card.append(label,input,err,saveBtn,hint,footer);
+  btn.addEventListener('click', async () => {
+    const k = input.value.trim();
+    if(!k || !k.startsWith('sk-')) { err.style.display='block'; err.textContent='Enter a valid key (starts with sk-)'; return; }
+    err.style.display='none'; btn.textContent='Saving…'; btn.disabled=true;
+    try {
+      await api('setApiKey', { apiKey: k });
+      state.stage='upload'; render();
+    } catch(e) {
+      err.style.display='block'; err.textContent=e.message;
+      btn.textContent='Save & continue →'; btn.disabled=false;
+    }
+  });
+  input.addEventListener('keydown', e => { if(e.key==='Enter') btn.click(); });
+  card.append(label, input, err, btn, hint, cost);
   wrap.appendChild(card);
+  setTimeout(() => input.focus(), 50);
   return wrap;
 }
 
@@ -821,12 +796,14 @@ function renderUpload() {
     wrap.appendChild(note);
   }
 
-  // Settings link
-  const settings = el('div',{style:'margin-top:20px;text-align:center;'});
-  const resetKey = el('button',{class:'btn btn-ghost',style:'font-size:12px;padding:6px 14px;',text:'Change API key'});
-  resetKey.addEventListener('click',()=>{ state.stage='onboard'; render(); });
-  settings.appendChild(resetKey);
-  wrap.appendChild(settings);
+  // Footer links
+  const footer = el('div',{style:'margin-top:20px;text-align:center;display:flex;gap:10px;justify-content:center;'});
+  const setupBtn = el('button',{class:'btn btn-ghost',style:'font-size:12px;padding:6px 14px;',text:'⚙ Change API key'});
+  setupBtn.addEventListener('click',()=>{ state.stage='setup-key'; render(); });
+  const refreshBtn = el('button',{class:'btn btn-ghost',style:'font-size:12px;padding:6px 14px;',text:'↺ Reload from sheet'});
+  refreshBtn.addEventListener('click',()=>loadFromSheet());
+  footer.append(setupBtn, refreshBtn);
+  wrap.appendChild(footer);
 
   return wrap;
 }
@@ -851,7 +828,7 @@ async function handleFile(file) {
   let all=[];
   try {
     for(let i=0;i<batches.length;i++){
-      all=[...all,...(await categoriseBatch(batches[i],state.apiKey))];
+      all=[...all,...(await categoriseBatch(batches[i]))];
       state.progress.done=i+1;
       render();
     }
@@ -859,9 +836,14 @@ async function handleFile(file) {
     state.error=e.message; state.stage='upload'; render(); return;
   }
 
-  // Persist
-  localStorage.setItem(LS.TXNS,JSON.stringify(all));
-  localStorage.setItem(LS.FILE,file.name);
+  // Save to Google Sheet
+  try {
+    await api('saveTransactions', { transactions: all, fileName: file.name });
+  } catch(e) {
+    // Non-fatal — data is in state, warn but continue
+    console.warn('Sheet save failed:', e.message);
+  }
+
   state.lastFile=file.name;
   state.weeks=groupByMonth(all);
   state.wi=0; state.selectedCat=null;
@@ -1066,7 +1048,7 @@ function commitBudget(catName){
   const v=parseFloat(state.editBudgetVal);
   if(!isNaN(v)&&v>=0){
     state.budgets[catName]=v;
-    localStorage.setItem(LS.BUDGETS,JSON.stringify(state.budgets));
+    api('saveBudgets', { budgets: state.budgets, freqs: state.freqs }).catch(()=>{});
   }
   state.editBudget=null;
   render();
@@ -1086,10 +1068,7 @@ function el(tag,props={}) {
   return e;
 }
 
-// ════════════════════════════════════════════
-//   BOOT
-// ════════════════════════════════════════════
-render();
+// (boot is handled by init() above)
 </script>
 </body>
 </html>
