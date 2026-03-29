@@ -1308,6 +1308,8 @@ function showRuleSaveBar(txn, newCat) {
   lastPanel.parentNode.insertBefore(bar, lastPanel.nextSibling);
   setTimeout(() => kw.focus(), 50);
 }
+
+function commitBudget(catName){
   const v=parseFloat(state.editBudgetVal);
   if(!isNaN(v)&&v>=0){
     state.budgets[catName]=v;
