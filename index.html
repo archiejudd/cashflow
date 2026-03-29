@@ -280,8 +280,49 @@ body {
 }
 .settings-bar span { font-size: 13px; color: var(--dim); }
 
-/* Responsive */
-@media (max-width: 520px) {
+/* Re-categorise */
+.recat-btn {
+  background: none; border: none; cursor: pointer; padding: 2px 6px;
+  border-radius: 4px; font-size: 11px; color: var(--dim2);
+  transition: color .15s, background .15s; white-space: nowrap; flex-shrink: 0;
+}
+.recat-btn:hover { color: var(--text); background: var(--s3); }
+.recat-dropdown {
+  position: fixed; z-index: 100;
+  background: var(--s1); border: 1px solid var(--border);
+  border-radius: 10px; padding: 6px; min-width: 200px;
+  box-shadow: 0 8px 32px #00000055;
+  animation: slideIn .15s ease;
+}
+.recat-option {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; border-radius: 6px; cursor: pointer;
+  font-size: 13px; transition: background .1s;
+}
+.recat-option:hover { background: var(--s2); }
+.recat-option.current { color: var(--accent); }
+.rule-save-bar {
+  background: var(--s2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 16px; margin-top: 6px;
+  animation: slideIn .15s ease;
+}
+.rule-save-bar p { font-size: 12px; color: var(--dim); margin-bottom: 8px; }
+.rule-save-row { display: flex; gap: 6px; align-items: center; }
+.rule-kw-input {
+  flex: 1; background: var(--s3); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); font-family: 'DM Mono', monospace;
+  font-size: 12px; padding: 5px 8px; outline: none;
+  transition: border-color .15s;
+}
+.rule-kw-input:focus { border-color: var(--accent); }
+.btn-xs {
+  padding: 5px 12px; border-radius: 6px; font-size: 12px;
+  font-family: 'DM Sans', sans-serif; font-weight: 500; cursor: pointer; border: none;
+  transition: opacity .15s;
+}
+.btn-xs:hover { opacity: .8; }
+.btn-xs-primary { background: var(--accent); color: #fff; }
+.btn-xs-ghost { background: var(--s3); color: var(--dim); }
   .summary-row { grid-template-columns: 1fr 1fr; }
   .summary-row .s-card:last-child { grid-column: 1/-1; }
   .cats-grid { grid-template-columns: 1fr; }
@@ -317,7 +358,7 @@ const CAT_NAMES = CATS.map(c => c.name);
 const CAT_MAP   = Object.fromEntries(CATS.map(c => [c.name, c]));
 
 // ── Paste your Apps Script Web App URL here after setup ──
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxMxSVjVXAY0jM3cNLlpaOws6Nfni7G5YwxdSpvheAA3WgxFW2Eqic8bdnfuYS__CRDkw/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzqGKW9aBfY2fKlQGn5IZEdKM5n8wwgyQZl7UNi77RgL4PY7C2dxjkbnQvJ2rKxs9hDFA/exec';
 // ─────────────────────────────────────────────────────────
 
 const LS = {
@@ -557,13 +598,55 @@ function mostRecentDate(txns) {
 }
 
 // ════════════════════════════════════════════
+//   RULES ENGINE
+// ════════════════════════════════════════════
+function applyRules(txns) {
+  // Returns txns with category pre-filled where a rule matches
+  return txns.map(t => {
+    if(t.category) return t; // already categorised
+    const descLower = (t.description || '').toLowerCase();
+    for(const rule of state.rules) {
+      if(descLower.includes(rule.keyword.toLowerCase())) {
+        return { ...t, category: rule.category, ruleApplied: rule.keyword };
+      }
+    }
+    return t;
+  });
+}
+
+function suggestKeyword(description) {
+  // Extract a clean keyword from a raw bank description
+  // Strip trailing location/state info, collapse whitespace, take first meaningful chunk
+  return description
+    .replace(/\s{2,}/g, ' ')           // collapse multiple spaces
+    .replace(/\s+(NSW|VIC|QLD|WA|SA|TAS|ACT|NT|AUS|AU)\s*$/i, '') // strip trailing state
+    .replace(/\s+\d{4,}\s*$/,'')       // strip trailing reference numbers
+    .trim()
+    .split(' ').slice(0, 3).join(' ')  // take first 3 words
+    .toLowerCase();
+}
+
+// ════════════════════════════════════════════
 //   CATEGORISATION (via Apps Script → OpenAI)
 // ════════════════════════════════════════════
 async function categoriseBatch(batch) {
-  const data = await api('categorise', { batch, categories: CAT_NAMES });
-  const res  = data.categories || [];
-  return batch.map((t, i) => {
-    const found = res.find(x => x.i === i);
+  // Apply local rules first — only send unmatched to OpenAI
+  const withRules = applyRules(batch);
+  const needsAI   = withRules.filter(t => !t.category);
+
+  if(needsAI.length === 0) return withRules;
+
+  // Re-index for the API call
+  const indexed = needsAI.map((t, i) => ({ ...t, _batchIdx: i }));
+  const data    = await api('categorise', { batch: indexed, categories: CAT_NAMES, rules: state.rules });
+  const res     = data.categories || [];
+
+  // Merge AI results back
+  let aiIdx = 0;
+  return withRules.map(t => {
+    if(t.category) return t; // rule already applied
+    const found = res.find(x => x.i === aiIdx);
+    aiIdx++;
     return { ...t, category: CAT_NAMES.includes(found?.cat) ? found.cat : 'Other' };
   });
 }
@@ -625,8 +708,9 @@ function importData(file) {
 // ════════════════════════════════════════════
 const state = {
   stage: 'loading',   // loading | setup-key | upload | label | processing | dashboard
-  pendingFile: null,  // file waiting for account label
-  accountLabel: '',   // label entered by user
+  pendingFile: null,
+  accountLabel: '',
+  rules: [],          // [{ keyword, category }] — user-saved rules
   weeks: [],
   wi: 0,
   budgets: {},
@@ -648,6 +732,7 @@ async function loadFromSheet() {
     state.budgets  = Object.keys(data.budgets||{}).length  ? data.budgets  : defaultBudgets();
     state.freqs    = Object.keys(data.freqs||{}).length    ? data.freqs    : defaultFreqs();
     state.lastFile = data.lastFile || null;
+    state.rules    = data.rules    || [];
     if(!data.hasApiKey) { state.stage = 'setup-key'; render(); return; }
     if(data.transactions.length > 0) {
       state.weeks = groupByMonth(data.transactions);
@@ -1096,20 +1181,38 @@ function renderDashboard() {
       panel.appendChild(el('div',{class:'empty-state',text:'No transactions in this category this month'}));
     } else {
       catTxns.forEach(t=>{
-        const row=el('div',{class:'txn-row'});
-        const left=el('div',{style:'min-width:0'});
-        const metaRow = el('div',{style:'display:flex;align-items:center;gap:6px;margin-top:3px;'});
+        const row = el('div',{class:'txn-row', style:'flex-direction:column;align-items:stretch;gap:0;padding:0;'});
+
+        // Main row
+        const mainRow = el('div',{style:'display:flex;justify-content:space-between;align-items:center;padding:11px 20px;'});
+        const left = el('div',{style:'min-width:0;flex:1;'});
+        const metaRow = el('div',{style:'display:flex;align-items:center;gap:6px;margin-top:3px;flex-wrap:wrap;'});
         metaRow.appendChild(el('div',{class:'txn-date',text:new Date(t.date).toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'})}));
         if(t.account) {
           const badge = el('span',{style:'font-size:10px;font-family:var(--mono,monospace);color:var(--dim2);background:var(--s3);border:1px solid var(--border2);border-radius:4px;padding:1px 5px;white-space:nowrap;'});
-          badge.textContent = '···' + String(t.account).slice(-4);
-          badge.title = t.account;
+          badge.textContent = t.account;
           metaRow.appendChild(badge);
         }
+        if(t.ruleApplied) {
+          const rb = el('span',{style:'font-size:10px;color:var(--accent);background:var(--acc-dim);border-radius:4px;padding:1px 5px;'});
+          rb.textContent = '⚡ rule';
+          rb.title = 'Matched rule: ' + t.ruleApplied;
+          metaRow.appendChild(rb);
+        }
         left.append(el('div',{class:'txn-desc',text:t.description}), metaRow);
-        const amt=el('div',{class:'txn-amt',text:fmt(t.amount,true)});
-        amt.style.color=t.amount>0?'var(--green)':'var(--text)';
-        row.append(left,amt);
+
+        const right = el('div',{style:'display:flex;align-items:center;gap:8px;padding-left:16px;flex-shrink:0;'});
+        const amt = el('div',{class:'txn-amt',text:fmt(t.amount,true)});
+        amt.style.color = t.amount>0 ? 'var(--green)' : 'var(--text)';
+
+        const recatBtn = el('button',{class:'recat-btn',text:'✎ re-categorise'});
+        recatBtn.addEventListener('click', e => {
+          e.stopPropagation();
+          showRecatDropdown(t, recatBtn, row);
+        });
+        right.append(amt, recatBtn);
+        mainRow.append(left, right);
+        row.appendChild(mainRow);
         panel.appendChild(row);
       });
     }
@@ -1119,7 +1222,92 @@ function renderDashboard() {
   return wrap;
 }
 
-function commitBudget(catName){
+function showRecatDropdown(txn, anchor, rowEl) {
+  // Remove any existing dropdown
+  document.querySelectorAll('.recat-dropdown').forEach(d => d.remove());
+  document.querySelectorAll('.rule-save-bar').forEach(d => d.remove());
+
+  const rect = anchor.getBoundingClientRect();
+  const drop = el('div',{class:'recat-dropdown'});
+  drop.style.top  = (rect.bottom + 6) + 'px';
+  drop.style.left = Math.min(rect.left, window.innerWidth - 220) + 'px';
+
+  CATS.forEach(cat => {
+    const opt = el('div',{class:'recat-option' + (cat.name === txn.category ? ' current' : '')});
+    const dot = el('div',{class:'cat-dot', style:`background:${cat.color};flex-shrink:0;`});
+    opt.append(dot, el('span',{text:cat.name}));
+    if(cat.name === txn.category) opt.append(el('span',{style:'margin-left:auto;font-size:11px;color:var(--accent);',text:'current'}));
+    opt.addEventListener('click', () => {
+      drop.remove();
+      if(cat.name === txn.category) return;
+      applyRecategorise(txn, cat.name, rowEl);
+    });
+    drop.appendChild(opt);
+  });
+
+  document.body.appendChild(drop);
+  const dismiss = e => { if(!drop.contains(e.target) && e.target !== anchor) { drop.remove(); document.removeEventListener('click', dismiss); }};
+  setTimeout(() => document.addEventListener('click', dismiss), 10);
+}
+
+function applyRecategorise(txn, newCat, rowEl) {
+  // Update in state
+  const allTxns = state.weeks.flatMap(w => w.transactions);
+  const t = allTxns.find(x => x.id === txn.id && x.date === txn.date);
+  if(t) t.category = newCat;
+
+  // Push to sheet (non-blocking)
+  api('updateCategory', { id: txn.id, category: newCat }).catch(()=>{});
+
+  // Re-render
+  render();
+
+  // Show rule save bar after a tick (render clears the DOM)
+  setTimeout(() => showRuleSaveBar(txn, newCat), 50);
+}
+
+function showRuleSaveBar(txn, newCat) {
+  // Find the transaction row in the freshly rendered DOM
+  const panels = document.querySelectorAll('.txn-panel');
+  if(!panels.length) return;
+  const lastPanel = panels[panels.length - 1];
+
+  const bar = el('div',{class:'rule-save-bar'});
+  const suggested = suggestKeyword(txn.description);
+
+  bar.innerHTML = `<p>💡 Save a rule so future <em>${newCat}</em> transactions are matched automatically?</p>`;
+
+  const inputRow = el('div',{class:'rule-save-row'});
+  const kw = el('input',{class:'rule-kw-input'});
+  kw.value = suggested;
+  kw.placeholder = 'keyword...';
+
+  const saveBtn = el('button',{class:'btn-xs btn-xs-primary', text:'Save rule'});
+  const skipBtn = el('button',{class:'btn-xs btn-xs-ghost', text:'Skip'});
+
+  saveBtn.addEventListener('click', async () => {
+    const keyword = kw.value.trim().toLowerCase();
+    if(!keyword) return;
+    bar.innerHTML = '<p style="color:var(--dim)">Saving rule…</p>';
+    try {
+      await api('saveRule', { keyword, category: newCat });
+      // Add to local state
+      const existing = state.rules.findIndex(r => r.keyword === keyword);
+      if(existing >= 0) state.rules[existing].category = newCat;
+      else state.rules.push({ keyword, category: newCat });
+      bar.innerHTML = `<p style="color:var(--green)">✓ Rule saved — "${keyword}" → ${newCat}</p>`;
+      setTimeout(() => bar.remove(), 2000);
+    } catch(e) {
+      bar.innerHTML = `<p style="color:var(--red)">Failed to save: ${e.message}</p>`;
+    }
+  });
+  skipBtn.addEventListener('click', () => bar.remove());
+
+  inputRow.append(kw, saveBtn, skipBtn);
+  bar.appendChild(inputRow);
+  lastPanel.parentNode.insertBefore(bar, lastPanel.nextSibling);
+  setTimeout(() => kw.focus(), 50);
+}
   const v=parseFloat(state.editBudgetVal);
   if(!isNaN(v)&&v>=0){
     state.budgets[catName]=v;
