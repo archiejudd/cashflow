@@ -317,7 +317,7 @@ const CAT_NAMES = CATS.map(c => c.name);
 const CAT_MAP   = Object.fromEntries(CATS.map(c => [c.name, c]));
 
 // ── Paste your Apps Script Web App URL here after setup ──
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyAgJ93lAQ9goFMPzJiRiS1DaUg-NNoW5QiCoMVJPHAUVhVc0fgy6i0a9rzFPqjlfT3nw/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwvfdie_SHr8sYX1iLC1xbtr8DvGjQScOBaiXe6aFd36J0QWganDCnUspdO8pH6JXBLrQ/exec';
 // ─────────────────────────────────────────────────────────
 
 const LS = {
@@ -500,13 +500,15 @@ function parseCSV(text) {
   const hasHeader = lc.some(h=>['date','amount','description','narration','debit','credit','transaction'].some(k=>h.includes(k)));
   const start = hasHeader ? 1 : 0;
 
-  let dC   = lc.findIndex(h=>h.includes('date'));            if(dC<0)  dC=0;
-  let xC   = lc.findIndex(h=>h.includes('transaction details')||h.includes('narration')||h.includes('description')||h.includes('details')); if(xC<0) xC=2;
-  let mnC  = lc.findIndex(h=>h.includes('merchant name'));
-  let ttC  = lc.findIndex(h=>h==='transaction type'||h.includes('transaction type')); // NAB type column
-  let aC   = lc.findIndex(h=>h==='amount'||(h.includes('amount')&&!h.includes('debit')&&!h.includes('credit'))); if(aC<0) aC=1;
-  let dbC  = lc.findIndex(h=>h==='debit'||h==='debit amount');
-  let crC  = lc.findIndex(h=>h==='credit'||h==='credit amount');
+  let dC    = lc.findIndex(h=>h.includes('date'));            if(dC<0)  dC=0;
+  let xC    = lc.findIndex(h=>h.includes('transaction details')||h.includes('narration')||h.includes('description')||h.includes('details')); if(xC<0) xC=2;
+  let mnC   = lc.findIndex(h=>h.includes('merchant name'));
+  let ttC   = lc.findIndex(h=>h==='transaction type'||h.includes('transaction type'));
+  let acC   = lc.findIndex(h=>h.includes('account number')||h.includes('account no')||h==='account');
+  let ncC   = lc.findIndex(h=>h==='category'); // NAB's own category column
+  let aC    = lc.findIndex(h=>h==='amount'||(h.includes('amount')&&!h.includes('debit')&&!h.includes('credit'))); if(aC<0) aC=1;
+  let dbC   = lc.findIndex(h=>h==='debit'||h==='debit amount');
+  let crC   = lc.findIndex(h=>h==='credit'||h==='credit amount');
 
   const txns = [];
   for(let i=start;i<lines.length;i++){
@@ -523,12 +525,14 @@ function parseCSV(text) {
       amount = parseFloat((row[aC]||'').replace(/[,"$\s]/g,''));
     }
     if(isNaN(amount)) continue;
-    const details  = (row[xC]||'').replace(/"/g,'').trim();
-    const merchant = mnC>=0 ? (row[mnC]||'').replace(/"/g,'').trim() : '';
-    const txnType  = ttC>=0 ? (row[ttC]||'').replace(/"/g,'').trim().toUpperCase() : '';
+    const details     = (row[xC]||'').replace(/"/g,'').trim();
+    const merchant    = mnC>=0 ? (row[mnC]||'').replace(/"/g,'').trim() : '';
+    const txnType     = ttC>=0 ? (row[ttC]||'').replace(/"/g,'').trim().toUpperCase() : '';
+    const account     = acC>=0 ? (row[acC]||'').replace(/"/g,'').trim() : '';
+    const nabCategory = ncC>=0 ? (row[ncC]||'').replace(/"/g,'').trim() : '';
     const desc = merchant && merchant !== details ? `${merchant} (${details})` : details || merchant;
     if(!desc) continue;
-    txns.push({ id:i, date:date.toISOString(), amount, description:desc, txnType, category:null });
+    txns.push({ id:i, date:date.toISOString(), amount, description:desc, txnType, account, nabCategory, category:null });
   }
   if(!txns.length) throw new Error('No valid transactions found. Check that your CSV has Date, Amount, and Description columns.');
   return txns;
@@ -1031,7 +1035,15 @@ function renderDashboard() {
       catTxns.forEach(t=>{
         const row=el('div',{class:'txn-row'});
         const left=el('div',{style:'min-width:0'});
-        left.append(el('div',{class:'txn-desc',text:t.description}),el('div',{class:'txn-date',text:new Date(t.date).toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'})}));
+        const metaRow = el('div',{style:'display:flex;align-items:center;gap:6px;margin-top:3px;'});
+        metaRow.appendChild(el('div',{class:'txn-date',text:new Date(t.date).toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'})}));
+        if(t.account) {
+          const badge = el('span',{style:'font-size:10px;font-family:var(--mono,monospace);color:var(--dim2);background:var(--s3);border:1px solid var(--border2);border-radius:4px;padding:1px 5px;white-space:nowrap;'});
+          badge.textContent = '···' + String(t.account).slice(-4);
+          badge.title = t.account;
+          metaRow.appendChild(badge);
+        }
+        left.append(el('div',{class:'txn-desc',text:t.description}), metaRow);
         const amt=el('div',{class:'txn-amt',text:fmt(t.amount,true)});
         amt.style.color=t.amount>0?'var(--green)':'var(--text)';
         row.append(left,amt);
