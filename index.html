@@ -381,7 +381,7 @@ const CAT_NAMES = CATS.map(c => c.name);
 const CAT_MAP   = Object.fromEntries(CATS.map(c => [c.name, c]));
 
 // ── Paste your Apps Script Web App URL here after setup ──
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyPR2B7We_JFQXiBIJCGHb1Crft0YO69qoMmZ-ISOL3QWJeJIzNm6F58cqdKOpG_ORkGQ/exec';
+const SCRIPT_URL = '';
 // ─────────────────────────────────────────────────────────
 
 const LS = {
@@ -885,9 +885,6 @@ function renderUpload() {
     el('div',{class:'dropzone-hint',text:'or click to browse'}),
     fileInput,
   );
-  const chips = el('div',{class:'chip-row'});
-  ['NAB','Commonwealth Bank'].forEach(b=>chips.appendChild(el('span',{class:'chip',text:b})));
-  zone.appendChild(chips);
 
   zone.addEventListener('click',()=>fileInput.click());
   zone.addEventListener('dragover',e=>{e.preventDefault();zone.classList.add('drag');});
