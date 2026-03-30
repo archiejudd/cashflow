@@ -381,7 +381,7 @@ const CAT_NAMES = CATS.map(c => c.name);
 const CAT_MAP   = Object.fromEntries(CATS.map(c => [c.name, c]));
 
 // ── Paste your Apps Script Web App URL here after setup ──
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzEHtKWAVGoh7BFfXoknodtr8mF2wGyaeEjTvdxXuXo8y0sJ7IQwcrDqCGLZXTxPTNH6Q/exec';
+const SCRIPT_URL = '';
 // ─────────────────────────────────────────────────────────
 
 const LS = {
@@ -1106,6 +1106,14 @@ function renderDashboard() {
   hdr.append(hLeft,hRight);
   wrap.appendChild(hdr);
 
+  if(state.error) {
+    const errBanner = el('div',{class:'err-banner', style:'margin-bottom:16px;', text:'⚠️ '+state.error});
+    const dismiss = el('button',{style:'float:right;background:none;border:none;color:var(--red);cursor:pointer;font-size:14px;', text:'✕'});
+    dismiss.addEventListener('click', ()=>{ state.error=null; render(); });
+    errBanner.appendChild(dismiss);
+    wrap.appendChild(errBanner);
+  }
+
   const month=state.weeks[state.wi];
   const txns=month?.transactions||[];
 
@@ -1464,12 +1472,12 @@ function showRuleSaveBar(txn, newCat) {
 function commitManualIncome(clear=false) {
   if(clear) {
     state.manualIncome = null;
-    api('saveBudgets', { clearManualIncome: true }).catch(()=>{});
+    api('saveBudgets', { clearManualIncome: true }).catch(e => { state.error='Failed to save: '+e.message; render(); });
   } else {
     const v = parseFloat(state.editBudgetVal);
     if(!isNaN(v) && v >= 0) {
       state.manualIncome = v;
-      api('saveBudgets', { manualIncome: v }).catch(()=>{});
+      api('saveBudgets', { manualIncome: v }).catch(e => { state.error='Failed to save: '+e.message; render(); });
     }
   }
   state.editBudget = null;
