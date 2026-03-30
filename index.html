@@ -763,8 +763,9 @@ const state = {
   accounts: [],
   savingsTarget: 2000,
   quarterlyTarget: 6000,
-  manualIncomeMap: {},  // { "2026-03": 8500, "2026-02": 7200 } per-month overrides
-  defaultIncome: null,  // fallback for months without an override
+  manualIncomeMap: {},
+  defaultIncome: null,
+  uploadSummary: null,  // { total, byRule, byAI, duplicates } shown after upload
   weeks: [],
   wi: 0,
   budgets: {},
@@ -835,6 +836,7 @@ function render() {
     if(state.stage==='upload')         { app.appendChild(renderUpload());    return; }
     if(state.stage==='label')          { app.appendChild(renderLabel());     return; }
     if(state.stage==='processing')     { app.appendChild(renderProcessing());return; }
+    if(state.stage==='summary')        { app.appendChild(renderSummary());   return; }
     if(state.stage==='dashboard')        app.appendChild(renderDashboard());
   } catch(err) {
     const errWrap = document.createElement('div');
@@ -1082,10 +1084,15 @@ async function handleFile(file, accountLabel='') {
     state.error=e.message; state.stage='upload'; render(); return;
   }
 
+  // Build upload summary stats
+  const byRule = all.filter(t => t.ruleApplied).length;
+  const byAI   = all.filter(t => !t.ruleApplied).length;
+
   // Save to Google Sheet (append-only, server deduplicates)
+  let duplicates = 0;
   try {
     const result = await api('saveTransactions', { transactions: all, fileName: file.name });
-    if(result.skipped > 0) console.info(`Dedup: ${result.added} added, ${result.skipped} skipped as duplicates`);
+    duplicates = result.skipped || 0;
   } catch(e) {
     console.warn('Sheet save failed:', e.message);
   }
@@ -1101,10 +1108,19 @@ async function handleFile(file, accountLabel='') {
   });
   const merged = [...existingTxns, ...newOnly];
 
-  state.lastFile=file.name;
-  state.weeks=groupByMonth(merged);
-  state.wi=0; state.selectedCat=null;
-  state.stage='dashboard'; render();
+  state.lastFile = file.name;
+  state.weeks = groupByMonth(merged);
+  state.wi = 0; state.selectedCat = null;
+
+  state.uploadSummary = {
+    account:    state.accountLabel || file.name,
+    total:      all.length,
+    byRule,
+    byAI,
+    duplicates,
+    newAdded:   newOnly.length,
+  };
+  state.stage = 'summary'; render();
 }
 
 // ── Processing ────────────────────────────────
@@ -1118,6 +1134,69 @@ function renderProcessing() {
     (() => { const t=el('div',{class:'prog-track'}); const f=el('div',{class:'prog-fill',style:`width:${pct}%`}); t.appendChild(f); return t; })(),
     el('div',{class:'proc-pct mono',text:`${p.done} / ${p.total} batches · ${pct}%`}),
   );
+  return wrap;
+}
+
+// ── Upload Summary ────────────────────────────
+function renderSummary() {
+  const s    = state.uploadSummary || {};
+  const wrap = el('div',{class:'onboard-wrap'});
+  const card = el('div',{class:'onboard-card'});
+
+  card.append(
+    el('div',{class:'eyebrow', text:'Judd Cashflow'}),
+    el('h1', {class:'onboard-title serif', text:'Upload complete.'}),
+  );
+
+  // Account tag
+  const accTag = el('div',{style:'font-size:12px;color:var(--dim);background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:7px 12px;margin-bottom:20px;'});
+  accTag.innerHTML = `📁 <strong>${s.account}</strong>`;
+  card.appendChild(accTag);
+
+  // Stats grid
+  const grid = el('div',{style:'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:20px;'});
+
+  const stats = [
+    { label:'Total transactions', val: s.total,      color:'var(--text)'   },
+    { label:'Added to sheet',     val: s.newAdded,    color:'var(--green)'  },
+    { label:'⚡ Matched by rules', val: s.byRule,     color:'var(--accent)' },
+    { label:'🤖 Sent to OpenAI',   val: s.byAI,       color:'var(--dim)'    },
+    { label:'Duplicates skipped',  val: s.duplicates, color:'var(--dim2)'   },
+  ];
+
+  stats.forEach(({label, val, color}) => {
+    const cell = el('div',{style:`background:var(--s2);border:1px solid var(--border);border-radius:9px;padding:12px 14px;`});
+    cell.append(
+      el('div',{style:'font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:5px;', text:label}),
+      el('div',{style:`font-family:'DM Mono',monospace;font-size:20px;font-weight:500;color:${color};`, text:String(val ?? 0)})
+    );
+    grid.appendChild(cell);
+  });
+  // Rule efficiency bar
+  if(s.total > 0) {
+    const rulePct = Math.round((s.byRule / s.total) * 100);
+    const barWrap = el('div',{style:'grid-column:1/-1;background:var(--s2);border:1px solid var(--border);border-radius:9px;padding:12px 14px;'});
+    barWrap.append(
+      el('div',{style:'font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:8px;', text:'Rule coverage'}),
+    );
+    const track = el('div',{class:'track'});
+    const fill  = el('div',{class:'track-fill', style:`width:${rulePct}%;background:var(--accent);`});
+    track.appendChild(fill);
+    const sub = el('div',{style:'font-size:11px;color:var(--dim);margin-top:5px;'});
+    sub.textContent = `${rulePct}% matched by rules · ${100-rulePct}% used OpenAI`;
+    barWrap.append(track, sub);
+    grid.appendChild(barWrap);
+  }
+
+  card.appendChild(grid);
+
+  const goBtn = el('button',{class:'btn btn-primary', text:'View dashboard →', style:'width:100%;'});
+  const moreBtn = el('button',{class:'btn btn-ghost', text:'↑ Upload another CSV', style:'width:100%;margin-top:8px;'});
+  goBtn.addEventListener('click',   () => { state.stage='dashboard'; render(); });
+  moreBtn.addEventListener('click', () => { state.stage='upload';    render(); });
+  card.append(goBtn, moreBtn);
+
+  wrap.appendChild(card);
   return wrap;
 }
 
@@ -1611,27 +1690,29 @@ async function commitManualIncome(monthKey, monthVal, defaultVal) {
   const dVal = parseFloat(defaultVal);
 
   // Update local state
-  if(!isNaN(mVal) && mVal >= 0) {
+  if(!isNaN(mVal) && mVal >= 0 && monthKey) {
     state.manualIncomeMap = { ...state.manualIncomeMap, [monthKey]: mVal };
-  } else {
-    // Blank month field = clear that month's override
+  } else if(monthKey) {
     const map = { ...state.manualIncomeMap };
     delete map[monthKey];
     state.manualIncomeMap = map;
   }
-  state.defaultIncome = (!isNaN(dVal) && dVal >= 0) ? dVal : null;
+  state.defaultIncome = (!isNaN(dVal) && dVal >= 0) ? dVal : state.defaultIncome;
   render();
 
-  // Persist to sheet
-  try {
+  // Persist everything in one call
+  const savePayload = { defaultIncome: state.defaultIncome };
+  if(monthKey) {
     if(!isNaN(mVal) && mVal >= 0) {
-      await api('saveBudgets', { manualIncomeMonth: monthKey, manualIncomeValue: mVal });
+      savePayload.manualIncomeMonth  = monthKey;
+      savePayload.manualIncomeValue  = mVal;
     } else {
-      await api('saveBudgets', { clearManualIncomeMonth: monthKey });
+      savePayload.clearManualIncomeMonth = monthKey;
     }
-    if(state.defaultIncome != null) {
-      await api('saveBudgets', { defaultIncome: state.defaultIncome });
-    }
+  }
+
+  try {
+    await api('saveBudgets', savePayload);
   } catch(e) {
     state.error = 'Failed to save income: ' + e.message; render();
   }
