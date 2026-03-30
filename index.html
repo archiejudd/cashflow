@@ -1173,10 +1173,10 @@ function renderDashboard() {
   if(state.editBudget === '__income__') {
     const inp = el('input',{class:'budget-inline-input', style:'width:100%;font-size:16px;', value: String(state.editBudgetVal)});
     inp.addEventListener('input', e => state.editBudgetVal = e.target.value);
-    inp.addEventListener('blur', commitManualIncome);
+    inp.addEventListener('blur', () => commitManualIncome());
     inp.addEventListener('keydown', e => {
-      if(e.key==='Enter') commitManualIncome();
-      if(e.key==='Escape'){state.editBudget=null; render();}
+      if(e.key==='Enter') { e.preventDefault(); commitManualIncome(); }
+      if(e.key==='Escape'){ state.editBudget=null; render(); }
     });
     incCard.append(incLabel, inp);
     setTimeout(()=>inp.focus(), 10);
