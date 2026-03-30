@@ -323,10 +323,20 @@ body {
 .btn-xs:hover { opacity: .8; }
 .btn-xs-primary { background: var(--accent); color: #fff; }
 .btn-xs-ghost { background: var(--s3); color: var(--dim); }
+
+/* Responsive */
+@media (max-width: 600px) {
+  .page-wrap { padding: 20px 12px 80px; }
   .summary-row { grid-template-columns: 1fr 1fr; }
   .summary-row .s-card:last-child { grid-column: 1/-1; }
   .cats-grid { grid-template-columns: 1fr; }
-  .onboard-card { padding: 28px 22px; }
+  .onboard-card { padding: 28px 18px; }
+  .dash-header { flex-direction: column; gap: 10px; }
+  .dash-actions { width: 100%; justify-content: flex-end; }
+  .week-nav { padding: 12px 10px; }
+  .txn-desc { max-width: 200px; }
+  .recat-btn { font-size: 10px; padding: 2px 4px; }
+  .s-val { font-size: 16px !important; }
 }
 </style>
 </head>
@@ -339,7 +349,6 @@ body {
 // ════════════════════════════════════════════
 const CATS = [
   { name:"Income",             isIncome:true,   isTransfer:false, color:"#4ade80", budget:null,  freq:'monthly'   },
-  { name:"Internal Transfers", isIncome:false,  isTransfer:true,  color:"#64748b", budget:null,  freq:'monthly'   },
   { name:"Mortgage",           isIncome:false,  isTransfer:false, color:"#38bdf8", budget:3000,  freq:'monthly'   },
   { name:"Groceries",          isIncome:false,  isTransfer:false, color:"#60a5fa", budget:800,   freq:'monthly'   },
   { name:"Dining & Takeaway",  isIncome:false,  isTransfer:false, color:"#f472b6", budget:400,   freq:'monthly'   },
@@ -353,12 +362,13 @@ const CATS = [
   { name:"Shopping",           isIncome:false,  isTransfer:false, color:"#e879f9", budget:600,   freq:'monthly'   },
   { name:"Entertainment",      isIncome:false,  isTransfer:false, color:"#818cf8", budget:300,   freq:'monthly'   },
   { name:"Other",              isIncome:false,  isTransfer:false, color:"#94a3b8", budget:400,   freq:'monthly'   },
+  { name:"Internal Transfers", isIncome:false,  isTransfer:true,  color:"#64748b", budget:null,  freq:'monthly'   },
 ];
 const CAT_NAMES = CATS.map(c => c.name);
 const CAT_MAP   = Object.fromEntries(CATS.map(c => [c.name, c]));
 
 // ── Paste your Apps Script Web App URL here after setup ──
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzqGKW9aBfY2fKlQGn5IZEdKM5n8wwgyQZl7UNi77RgL4PY7C2dxjkbnQvJ2rKxs9hDFA/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzyzkjUD62JbJtC1t9ffG2fXiVenVPsjqUuU04xf6MQaFeQ2uuZgAsI9PshOtpiLBqw3g/exec';
 // ─────────────────────────────────────────────────────────
 
 const LS = {
@@ -710,7 +720,8 @@ const state = {
   stage: 'loading',   // loading | setup-key | upload | label | processing | dashboard
   pendingFile: null,
   accountLabel: '',
-  rules: [],          // [{ keyword, category }] — user-saved rules
+  rules: [],
+  savingsTarget: 2000,  // monthly savings target — editable inline
   weeks: [],
   wi: 0,
   budgets: {},
@@ -729,10 +740,11 @@ async function loadFromSheet() {
   render();
   try {
     const data = await api('getData');
-    state.budgets  = Object.keys(data.budgets||{}).length  ? data.budgets  : defaultBudgets();
-    state.freqs    = Object.keys(data.freqs||{}).length    ? data.freqs    : defaultFreqs();
-    state.lastFile = data.lastFile || null;
-    state.rules    = data.rules    || [];
+    state.budgets       = Object.keys(data.budgets||{}).length  ? data.budgets  : defaultBudgets();
+    state.freqs         = Object.keys(data.freqs||{}).length    ? data.freqs    : defaultFreqs();
+    state.lastFile      = data.lastFile || null;
+    state.rules         = data.rules    || [];
+    state.savingsTarget = data.savingsTarget != null ? data.savingsTarget : state.savingsTarget;
     if(!data.hasApiKey) { state.stage = 'setup-key'; render(); return; }
     if(data.transactions.length > 0) {
       state.weeks = groupByMonth(data.transactions);
@@ -1025,11 +1037,9 @@ function renderDashboard() {
   const hLeft=el('div');
   hLeft.append(el('div',{class:'eyebrow',text:'Judd Cashflow'}),el('div',{class:'dash-title serif',text:'Monthly Budget'}));
   const hRight=el('div',{class:'dash-actions'});
-  const exportBtn=el('button',{class:'btn btn-ghost',text:'↓ Export backup'});
-  exportBtn.addEventListener('click',()=>exportData());
   const newBtn=el('button',{class:'btn btn-ghost',text:'↑ Upload new'});
   newBtn.addEventListener('click',()=>{ state.stage='upload'; state.selectedCat=null; render(); });
-  hRight.append(exportBtn, newBtn);
+  hRight.append(newBtn);
   hdr.append(hLeft,hRight);
   wrap.appendChild(hdr);
 
@@ -1079,16 +1089,52 @@ function renderDashboard() {
   wrap.appendChild(nav);
 
   // Summary
-  const sumRow=el('div',{class:'summary-row'});
-  [
-    {label:'Income', val:income, color:'var(--green)'},
-    {label:'Spend',  val:spend,  color:'var(--text)'},
-    {label:'Net',    val:net,    color:net>=0?'var(--green)':'var(--red)', sign:true},
-  ].forEach(({label,val,color,sign})=>{
-    const card=el('div',{class:'s-card'});
-    card.append(el('div',{class:'s-label',text:label}),el('div',{class:'s-val mono',style:`color:${color}`,text:fmt(val,!!sign)}));
-    sumRow.appendChild(card);
-  });
+  const headroom = net - state.savingsTarget;
+  const sumRow=el('div',{class:'summary-row', style:'grid-template-columns:repeat(2,1fr);'});
+
+  // Income
+  const incCard = el('div',{class:'s-card'});
+  incCard.append(el('div',{class:'s-label',text:'Income'}), el('div',{class:'s-val mono',style:'color:var(--green)',text:fmt(income)}));
+  sumRow.appendChild(incCard);
+
+  // Spend
+  const spCard = el('div',{class:'s-card'});
+  spCard.append(el('div',{class:'s-label',text:'Spend'}), el('div',{class:'s-val mono',text:fmt(spend)}));
+  sumRow.appendChild(spCard);
+
+  // Net
+  const netCard = el('div',{class:'s-card'});
+  netCard.append(el('div',{class:'s-label',text:'Net'}), el('div',{class:'s-val mono',style:`color:${net>=0?'var(--green)':'var(--red)'}`,text:fmt(net,true)}));
+  sumRow.appendChild(netCard);
+
+  // Savings target — inline editable
+  const tgtCard = el('div',{class:'s-card', style:'cursor:pointer;'});
+  const tgtLabel = el('div',{class:'s-label',text:'Savings target'});
+  if(state.editBudget==='__savings__') {
+    const inp = el('input',{class:'budget-inline-input', style:'width:100%;font-size:16px;', value:String(state.editBudgetVal)});
+    inp.addEventListener('input', e => state.editBudgetVal = e.target.value);
+    inp.addEventListener('blur', commitSavingsTarget);
+    inp.addEventListener('keydown', e => { if(e.key==='Enter') commitSavingsTarget(); if(e.key==='Escape'){state.editBudget=null;render();} });
+    tgtCard.append(tgtLabel, inp);
+    setTimeout(()=>inp.focus(),10);
+  } else {
+    const tgtVal = el('div',{class:'s-val mono',style:'color:var(--dim);',text:fmt(state.savingsTarget)});
+    tgtCard.append(tgtLabel, tgtVal);
+    tgtCard.addEventListener('click', () => { state.editBudget='__savings__'; state.editBudgetVal=String(state.savingsTarget); render(); });
+  }
+  sumRow.appendChild(tgtCard);
+
+  // Headroom — how much more you can spend before eating into savings target
+  const hrCard = el('div',{class:'s-card', style:'grid-column:1/-1;'});
+  const hrLabel = el('div',{class:'s-label',text: headroom >= 0 ? 'Headroom to spend' : 'Over savings target by'});
+  const hrVal   = el('div',{class:'s-val mono',style:`color:${headroom>=0?'var(--green)':'var(--red)'}`,text:fmt(Math.abs(headroom))});
+  const hrSub   = el('div',{style:'font-size:11px;color:var(--dim);margin-top:4px;'});
+  hrSub.textContent = headroom >= 0
+    ? `You can spend ${fmt(headroom)} more this month and still hit your ${fmt(state.savingsTarget)} savings target.`
+    : `You have spent ${fmt(Math.abs(headroom))} more than your ${fmt(state.savingsTarget)} savings target.`;
+  hrCard.append(hrLabel, hrVal, hrSub);
+  sumRow.appendChild(hrCard);
+
   wrap.appendChild(sumRow);
 
   // Category cards
@@ -1113,7 +1159,7 @@ function renderDashboard() {
     spentEl.style.color=cat.isIncome?'var(--green)':over?'var(--red)':'var(--text)';
     right.appendChild(spentEl);
 
-    if(!cat.isIncome){
+    if(!cat.isIncome && !cat.isTransfer){
       if(over){
         const badge=el('span',{class:'over-badge',text:'over'});
         right.appendChild(badge);
@@ -1146,8 +1192,7 @@ function renderDashboard() {
     top.append(left,right);
     card.appendChild(top);
 
-    if(!cat.isIncome){
-      const track=el('div',{class:'track'});
+    if(!cat.isIncome && !cat.isTransfer){
       const fill=el('div',{class:'track-fill',style:`width:${pct}%;background:${over?'var(--red)':cat.color}`});
       track.appendChild(fill);
       card.appendChild(track);
@@ -1223,14 +1268,15 @@ function renderDashboard() {
 }
 
 function showRecatDropdown(txn, anchor, rowEl) {
-  // Remove any existing dropdown
   document.querySelectorAll('.recat-dropdown').forEach(d => d.remove());
   document.querySelectorAll('.rule-save-bar').forEach(d => d.remove());
 
   const rect = anchor.getBoundingClientRect();
   const drop = el('div',{class:'recat-dropdown'});
-  drop.style.top  = (rect.bottom + 6) + 'px';
-  drop.style.left = Math.min(rect.left, window.innerWidth - 220) + 'px';
+  // Make scrollable so it never overflows
+  drop.style.maxHeight = '320px';
+  drop.style.overflowY = 'auto';
+  drop.style.left = Math.min(rect.left, window.innerWidth - 224) + 'px';
 
   CATS.forEach(cat => {
     const opt = el('div',{class:'recat-option' + (cat.name === txn.category ? ' current' : '')});
@@ -1245,7 +1291,19 @@ function showRecatDropdown(txn, anchor, rowEl) {
     drop.appendChild(opt);
   });
 
+  // Append first to measure height, then position
+  drop.style.visibility = 'hidden';
   document.body.appendChild(drop);
+  const dropH = drop.offsetHeight;
+  const spaceBelow = window.innerHeight - rect.bottom - 8;
+  if(spaceBelow >= dropH) {
+    drop.style.top = (rect.bottom + 6) + 'px';
+  } else {
+    // Flip above if more space there
+    drop.style.top = Math.max(8, rect.top - dropH - 6) + 'px';
+  }
+  drop.style.visibility = '';
+
   const dismiss = e => { if(!drop.contains(e.target) && e.target !== anchor) { drop.remove(); document.removeEventListener('click', dismiss); }};
   setTimeout(() => document.addEventListener('click', dismiss), 10);
 }
@@ -1307,6 +1365,16 @@ function showRuleSaveBar(txn, newCat) {
   bar.appendChild(inputRow);
   lastPanel.parentNode.insertBefore(bar, lastPanel.nextSibling);
   setTimeout(() => kw.focus(), 50);
+}
+
+function commitSavingsTarget() {
+  const v = parseFloat(state.editBudgetVal);
+  if(!isNaN(v) && v >= 0) {
+    state.savingsTarget = v;
+    api('saveBudgets', { savingsTarget: v }).catch(()=>{});
+  }
+  state.editBudget = null;
+  render();
 }
 
 function commitBudget(catName){
