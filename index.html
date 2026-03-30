@@ -324,6 +324,19 @@ body {
 .btn-xs-primary { background: var(--accent); color: #fff; }
 .btn-xs-ghost { background: var(--s3); color: var(--dim); }
 
+/* Account picker */
+.account-picker { display:flex; flex-direction:column; gap:6px; margin-bottom:4px; }
+.account-option {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:11px 14px; border-radius:9px; cursor:pointer;
+  background:var(--s2); border:1px solid var(--border);
+  transition:border-color .15s, background .15s;
+}
+.account-option:hover { background:var(--s3); border-color:var(--dim2); }
+.account-option.selected { border-color:var(--accent); background:var(--acc-dim); }
+.account-option-label { font-weight:500; font-size:14px; }
+.account-option-bank { font-size:11px; color:var(--dim); font-family:'DM Mono',monospace; background:var(--s3); padding:2px 7px; border-radius:4px; }
+
 /* Responsive */
 @media (max-width: 600px) {
   .page-wrap { padding: 20px 12px 80px; }
@@ -368,7 +381,7 @@ const CAT_NAMES = CATS.map(c => c.name);
 const CAT_MAP   = Object.fromEntries(CATS.map(c => [c.name, c]));
 
 // ── Paste your Apps Script Web App URL here after setup ──
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzyzkjUD62JbJtC1t9ffG2fXiVenVPsjqUuU04xf6MQaFeQ2uuZgAsI9PshOtpiLBqw3g/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyPR2B7We_JFQXiBIJCGHb1Crft0YO69qoMmZ-ISOL3QWJeJIzNm6F58cqdKOpG_ORkGQ/exec';
 // ─────────────────────────────────────────────────────────
 
 const LS = {
@@ -721,6 +734,7 @@ const state = {
   pendingFile: null,
   accountLabel: '',
   rules: [],
+  accounts: [],       // [{ label, bank }] loaded from Accounts sheet
   savingsTarget: 2000,  // monthly savings target — editable inline
   weeks: [],
   wi: 0,
@@ -744,6 +758,7 @@ async function loadFromSheet() {
     state.freqs         = Object.keys(data.freqs||{}).length    ? data.freqs    : defaultFreqs();
     state.lastFile      = data.lastFile || null;
     state.rules         = data.rules    || [];
+    state.accounts      = data.accounts || [];
     state.savingsTarget = data.savingsTarget != null ? data.savingsTarget : state.savingsTarget;
     if(!data.hasApiKey) { state.stage = 'setup-key'; render(); return; }
     if(data.transactions.length > 0) {
@@ -943,37 +958,63 @@ function renderLabel() {
 
   card.append(
     el('div',{class:'eyebrow', text:'Judd Cashflow'}),
-    el('h1', {class:'onboard-title serif', text:'Label this account.'}),
-    el('p',  {class:'onboard-sub', text:`Give this statement a short name so you can tell accounts apart. This will appear next to every transaction.`}),
+    el('h1', {class:'onboard-title serif', text:'Which account is this?'}),
+    el('p',  {class:'onboard-sub', text:'Select the account this statement belongs to. Manage accounts in the Accounts tab of your Google Sheet.'}),
   );
 
   const fileNote = el('div',{style:'font-size:12px;color:var(--dim);background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin-bottom:18px;'});
   fileNote.innerHTML = `📄 <strong>${file?.name}</strong>`;
   card.appendChild(fileNote);
 
-  const label  = el('div',{class:'field-label', text:'Account label'});
-  const input  = el('input',{class:'input', placeholder:'e.g. NAB Everyday, CBA Joint, NAB Savings'});
-  const btn    = el('button',{class:'btn btn-primary', text:'Categorise transactions →', style:'width:100%;margin-top:14px;'});
-  const err    = el('div',{style:'color:var(--red);font-size:13px;margin-top:8px;display:none;', text:'Please enter an account label.'});
-  const back   = el('button',{class:'btn btn-ghost', text:'← Back', style:'width:100%;margin-top:8px;'});
+  const err  = el('div',{style:'color:var(--red);font-size:13px;margin-top:8px;display:none;', text:'Please select an account.'});
+  const btn  = el('button',{class:'btn btn-primary', text:'Categorise transactions →', style:'width:100%;margin-top:14px;'});
+  const back = el('button',{class:'btn btn-ghost', text:'← Back', style:'width:100%;margin-top:8px;'});
 
-  // Suggest a label from filename
-  const nameLower = (file?.name||'').toLowerCase();
-  if(nameLower.includes('nab'))        input.value = 'NAB Everyday';
-  else if(nameLower.includes('cba')||nameLower.includes('commbank')) input.value = 'CBA Everyday';
+  let selected = state.accountLabel || '';
+
+  // If accounts loaded from sheet, show picker; otherwise fall back to text input
+  if(state.accounts.length > 0) {
+    const picker = el('div',{class:'account-picker'});
+
+    state.accounts.forEach(acc => {
+      const opt = el('div',{class:'account-option' + (selected===acc.label ? ' selected' : '')});
+      opt.append(
+        el('span',{class:'account-option-label', text:acc.label}),
+        el('span',{class:'account-option-bank',  text:acc.bank || ''})
+      );
+      opt.addEventListener('click', () => {
+        selected = acc.label;
+        picker.querySelectorAll('.account-option').forEach(o => o.classList.remove('selected'));
+        opt.classList.add('selected');
+      });
+      picker.appendChild(opt);
+    });
+
+    const fieldLabel = el('div',{class:'field-label', style:'margin-bottom:8px;', text:'Select account'});
+    card.append(fieldLabel, picker, err, btn, back);
+
+  } else {
+    // Fallback: text input (no accounts in sheet yet)
+    const fieldLabel = el('div',{class:'field-label', text:'Account label'});
+    const input = el('input',{class:'input', placeholder:'e.g. NAB Everyday, CBA Joint'});
+    const nameLower = (file?.name||'').toLowerCase();
+    if(nameLower.includes('nab'))        input.value = 'NAB Everyday';
+    else if(nameLower.includes('cba'))   input.value = 'CBA Everyday';
+    selected = input.value;
+    input.addEventListener('input', e => { selected = e.target.value; });
+    input.addEventListener('keydown', e => { if(e.key==='Enter') btn.click(); });
+    card.append(fieldLabel, input, err, btn, back);
+    setTimeout(()=>{ input.focus(); input.select(); }, 50);
+  }
 
   btn.addEventListener('click', () => {
-    const v = input.value.trim();
-    if(!v) { err.style.display='block'; return; }
-    state.accountLabel = v;
-    handleFile(state.pendingFile, v);
+    if(!selected.trim()) { err.style.display='block'; return; }
+    state.accountLabel = selected.trim();
+    handleFile(state.pendingFile, state.accountLabel);
   });
   back.addEventListener('click', () => { state.stage='upload'; state.pendingFile=null; render(); });
-  input.addEventListener('keydown', e => { if(e.key==='Enter') btn.click(); });
 
-  card.append(label, input, err, btn, back);
   wrap.appendChild(card);
-  setTimeout(()=>{ input.focus(); input.select(); }, 50);
   return wrap;
 }
 
@@ -1012,16 +1053,27 @@ async function handleFile(file, accountLabel='') {
     state.error=e.message; state.stage='upload'; render(); return;
   }
 
-  // Save to Google Sheet
+  // Save to Google Sheet (append-only, server deduplicates)
   try {
-    await api('saveTransactions', { transactions: all, fileName: file.name });
+    const result = await api('saveTransactions', { transactions: all, fileName: file.name });
+    if(result.skipped > 0) console.info(`Dedup: ${result.added} added, ${result.skipped} skipped as duplicates`);
   } catch(e) {
-    // Non-fatal — data is in state, warn but continue
     console.warn('Sheet save failed:', e.message);
   }
 
+  // Merge into existing state (client-side dedup by same key)
+  const existingTxns = state.weeks.flatMap(w => w.transactions);
+  const existingKeys = new Set(existingTxns.map(t =>
+    `${t.date}|${t.amount}|${String(t.description).trim().toLowerCase()}|${String(t.account).trim().toLowerCase()}`
+  ));
+  const newOnly = all.filter(t => {
+    const key = `${t.date}|${t.amount}|${String(t.description).trim().toLowerCase()}|${String(t.account).trim().toLowerCase()}`;
+    return !existingKeys.has(key);
+  });
+  const merged = [...existingTxns, ...newOnly];
+
   state.lastFile=file.name;
-  state.weeks=groupByMonth(all);
+  state.weeks=groupByMonth(merged);
   state.wi=0; state.selectedCat=null;
   state.stage='dashboard'; render();
 }
