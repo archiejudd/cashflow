@@ -1241,7 +1241,8 @@ function renderDashboard() {
   // Category cards
   const grid=el('div',{class:'cats-grid'});
   CATS.forEach(cat=>{
-    const spent=totals[cat.name];
+    // For Income, use manualIncome if set
+    const spent = (cat.isIncome && state.manualIncome != null) ? state.manualIncome : totals[cat.name];
     const budget=cat.isIncome?null:state.budgets[cat.name];
     const pct=budget?Math.min((spent/budget)*100,100):0;
     const over=budget&&spent>budget;
@@ -1469,19 +1470,24 @@ function showRuleSaveBar(txn, newCat) {
   setTimeout(() => kw.focus(), 50);
 }
 
-function commitManualIncome(clear=false) {
+async function commitManualIncome(clear=false) {
+  state.editBudget = null;
   if(clear) {
     state.manualIncome = null;
-    api('saveBudgets', { clearManualIncome: true }).catch(e => { state.error='Failed to save: '+e.message; render(); });
+    render();
+    try { await api('saveBudgets', { clearManualIncome: true }); }
+    catch(e) { state.error = 'Failed to save: ' + e.message; render(); }
   } else {
     const v = parseFloat(state.editBudgetVal);
     if(!isNaN(v) && v >= 0) {
       state.manualIncome = v;
-      api('saveBudgets', { manualIncome: v }).catch(e => { state.error='Failed to save: '+e.message; render(); });
+      render();
+      try { await api('saveBudgets', { manualIncome: v }); }
+      catch(e) { state.error = 'Failed to save: ' + e.message; render(); }
+    } else {
+      render();
     }
   }
-  state.editBudget = null;
-  render();
 }
 
 function commitSavingsTarget() {
