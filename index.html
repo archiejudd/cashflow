@@ -597,8 +597,12 @@ function parseCSV(text) {
     const nabCategory = ncC>=0 ? (row[ncC]||'').replace(/"/g,'').trim() : '';
     const desc = merchant && merchant !== details ? `${merchant} (${details})` : details || merchant;
     if(!desc) continue;
-    // Generate a stable unique ID from content so it survives re-uploads and multi-account dedup
-    const uid = btoa(encodeURIComponent(`${date.toISOString()}|${amount}|${desc.trim().toLowerCase()}`)).replace(/[^a-zA-Z0-9]/g,'').slice(0,24);
+    // ID = date(yyyymmdd) + amount-in-cents + first 8 alphanum chars of description
+    // Replicable in Sheets: =TEXT(B2,"yyyymmdd")&TEXT(ABS(C2)*100,"0")&LEFT(UPPER(REGEXREPLACE(D2,"[^A-Za-z0-9]","")),8)
+    const datePart = date.toISOString().slice(0,10).replace(/-/g,'');
+    const amtPart  = Math.round(Math.abs(amount)*100).toString();
+    const descPart = desc.replace(/[^A-Za-z0-9]/g,'').toUpperCase().slice(0,8);
+    const uid      = datePart + amtPart + descPart;
     txns.push({ id: uid, date:date.toISOString(), amount, description:desc, txnType, account, nabCategory, category:null });
   }
   if(!txns.length) throw new Error('No valid transactions found. Check that your CSV has Date, Amount, and Description columns.');
