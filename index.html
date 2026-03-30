@@ -216,7 +216,7 @@ body {
 
 /* Category grid */
 .cats-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(265px, 1fr));
+  display: grid; grid-template-columns: 1fr;
   gap: 8px; margin-bottom: 20px;
 }
 .cat-card {
@@ -381,7 +381,7 @@ const CAT_NAMES = CATS.map(c => c.name);
 const CAT_MAP   = Object.fromEntries(CATS.map(c => [c.name, c]));
 
 // ── Paste your Apps Script Web App URL here after setup ──
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyGtLNOnGxsO306uPWgSc8fRyWh6ZhUV8nEUCZQR56bmaxZO6sprr20GuVUg1kRXpoc8A/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzEHtKWAVGoh7BFfXoknodtr8mF2wGyaeEjTvdxXuXo8y0sJ7IQwcrDqCGLZXTxPTNH6Q/exec';
 // ─────────────────────────────────────────────────────────
 
 const LS = {
@@ -734,8 +734,9 @@ const state = {
   pendingFile: null,
   accountLabel: '',
   rules: [],
-  accounts: [],       // [{ label, bank }] loaded from Accounts sheet
-  savingsTarget: 2000,  // monthly savings target — editable inline
+  accounts: [],
+  savingsTarget: 2000,
+  manualIncome: null,   // if set, overrides calculated income from transactions  // monthly savings target — editable inline
   weeks: [],
   wi: 0,
   budgets: {},
@@ -760,6 +761,7 @@ async function loadFromSheet() {
     state.rules         = data.rules    || [];
     state.accounts      = data.accounts || [];
     state.savingsTarget = data.savingsTarget != null ? data.savingsTarget : state.savingsTarget;
+    state.manualIncome  = data.manualIncome  != null ? data.manualIncome  : state.manualIncome;
     if(!data.hasApiKey) { state.stage = 'setup-key'; render(); return; }
     if(data.transactions.length > 0) {
       state.weeks = groupByMonth(data.transactions);
@@ -1129,7 +1131,8 @@ function renderDashboard() {
     if(t.amount > 0) totals['Income'] += t.amount;
     else totals[cat] += Math.abs(t.amount);
   }
-  const income = totals['Income'];
+  const calcIncome = totals['Income'];
+  const income = state.manualIncome != null ? state.manualIncome : calcIncome;
   const spend  = CATS.filter(c=>!c.isIncome&&!c.isTransfer).reduce((s,c)=>s+totals[c.name],0);
   const net    = income - spend;
 
@@ -1153,9 +1156,38 @@ function renderDashboard() {
   const headroom = net - state.savingsTarget;
   const sumRow=el('div',{class:'summary-row', style:'grid-template-columns:repeat(2,1fr);'});
 
-  // Income
-  const incCard = el('div',{class:'s-card'});
-  incCard.append(el('div',{class:'s-label',text:'Income'}), el('div',{class:'s-val mono',style:'color:var(--green)',text:fmt(income)}));
+  // Income — editable to override with manual figure
+  const incCard = el('div',{class:'s-card', style:'cursor:pointer;'});
+  const incLabel = el('div',{class:'s-label'});
+  incLabel.innerHTML = state.manualIncome != null
+    ? 'Income <span style="color:var(--accent);font-size:9px;letter-spacing:.08em;">MANUAL</span>'
+    : 'Income <span style="color:var(--dim2);font-size:9px;letter-spacing:.08em;">tap to set</span>';
+  if(state.editBudget === '__income__') {
+    const inp = el('input',{class:'budget-inline-input', style:'width:100%;font-size:16px;', value: String(state.editBudgetVal)});
+    inp.addEventListener('input', e => state.editBudgetVal = e.target.value);
+    inp.addEventListener('blur', commitManualIncome);
+    inp.addEventListener('keydown', e => {
+      if(e.key==='Enter') commitManualIncome();
+      if(e.key==='Escape'){state.editBudget=null; render();}
+    });
+    incCard.append(incLabel, inp);
+    setTimeout(()=>inp.focus(), 10);
+  } else {
+    const incVal = el('div',{class:'s-val mono', style:`color:${state.manualIncome!=null?'var(--green)':'var(--green)'}`, text:fmt(income)});
+    if(state.manualIncome != null) {
+      const clearBtn = el('div',{style:'font-size:10px;color:var(--dim);margin-top:4px;cursor:pointer;'});
+      clearBtn.textContent = `calculated: ${fmt(calcIncome)} · clear override`;
+      clearBtn.addEventListener('click', e => { e.stopPropagation(); commitManualIncome(true); });
+      incCard.append(incLabel, incVal, clearBtn);
+    } else {
+      incCard.append(incLabel, incVal);
+    }
+    incCard.addEventListener('click', () => {
+      state.editBudget = '__income__';
+      state.editBudgetVal = String(state.manualIncome ?? Math.round(income));
+      render();
+    });
+  }
   sumRow.appendChild(incCard);
 
   // Spend
@@ -1427,6 +1459,21 @@ function showRuleSaveBar(txn, newCat) {
   bar.appendChild(inputRow);
   lastPanel.parentNode.insertBefore(bar, lastPanel.nextSibling);
   setTimeout(() => kw.focus(), 50);
+}
+
+function commitManualIncome(clear=false) {
+  if(clear) {
+    state.manualIncome = null;
+    api('saveBudgets', { clearManualIncome: true }).catch(()=>{});
+  } else {
+    const v = parseFloat(state.editBudgetVal);
+    if(!isNaN(v) && v >= 0) {
+      state.manualIncome = v;
+      api('saveBudgets', { manualIncome: v }).catch(()=>{});
+    }
+  }
+  state.editBudget = null;
+  render();
 }
 
 function commitSavingsTarget() {
