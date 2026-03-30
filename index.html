@@ -1205,6 +1205,7 @@ function renderDashboard() {
     card.appendChild(top);
 
     if(!cat.isIncome && !cat.isTransfer){
+      const track=el('div',{class:'track'});
       const fill=el('div',{class:'track-fill',style:`width:${pct}%;background:${over?'var(--red)':cat.color}`});
       track.appendChild(fill);
       card.appendChild(track);
