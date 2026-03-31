@@ -635,8 +635,13 @@ function netForMonth(monthData) {
   for(const t of txns) {
     const cat = t.category || 'Other';
     if(cat === 'Internal Transfers') continue;
-    if(t.amount > 0) inc += t.amount;
-    else spend += Math.abs(t.amount);
+  for(const t of txns) {
+    const cat = t.category || (t.amount > 0 ? 'Income' : 'Other');
+    if(cat === 'Internal Transfers') continue;
+    if(cat === 'Income') inc += t.amount;
+    else spend += (t.amount < 0 ? Math.abs(t.amount) : -t.amount);
+    if(spend < 0) spend = 0;
+  }
   }
   // Apply manual income override if set
   const manualInc = state.manualIncomeMap[mk] != null
@@ -1240,33 +1245,33 @@ function renderDashboard() {
   quoteEl.innerHTML = `"${q.text}" <span style="font-style:normal;color:var(--dim);"> — ${q.author}</span>`;
   wrap.appendChild(quoteEl);
 
-  // Totals — Internal Transfers excluded from income and spend
+  // Totals — category takes priority over amount sign
+  // A positive transaction explicitly categorised as e.g. "Groceries" is a refund, not income
   const totals=Object.fromEntries(CAT_NAMES.map(c=>[c,0]));
   for(const t of txns){
-    const cat = t.category || 'Other';
+    const cat = t.category || (t.amount > 0 ? 'Income' : 'Other');
     if(cat === 'Internal Transfers') { totals['Internal Transfers'] += Math.abs(t.amount); continue; }
-    if(t.amount > 0) totals['Income'] += t.amount;
-    else totals[cat] += Math.abs(t.amount);
+    if(cat === 'Income') {
+      totals['Income'] += t.amount; // could be positive (income) or negative (income reversal)
+    } else {
+      // For non-income categories: positive = refund (reduces spend), negative = expense
+      totals[cat] = (totals[cat] || 0) + (t.amount < 0 ? Math.abs(t.amount) : -t.amount);
+      if(totals[cat] < 0) totals[cat] = 0; // don't let refunds go below zero
+    }
   }
-  const calcIncome  = totals['Income'];
-  const currentMonthKey = month?.monthKey || '';
-  const manualIncome = state.manualIncomeMap[currentMonthKey] != null
-    ? state.manualIncomeMap[currentMonthKey]
-    : state.defaultIncome;
-  const income = manualIncome != null ? manualIncome : calcIncome;
+  const income = totals['Income'];
   const spend  = CATS.filter(c=>!c.isIncome&&!c.isTransfer).reduce((s,c)=>s+totals[c.name],0);
   const net    = income - spend;
+  const currentMonthKey = month?.monthKey || '';
 
   // ── Savings tracker (YTD + Quarter) ──────────
   const currentYear = currentMonthKey ? parseInt(currentMonthKey.slice(0,4)) : new Date().getFullYear();
   const currentQ    = currentMonthKey ? Math.ceil(parseInt(currentMonthKey.slice(5,7)) / 3) : Math.ceil((new Date().getMonth()+1)/3);
 
-  // Sum net for all months in the current year
   const ytdSavings = state.weeks
     .filter(w => parseInt(w.monthKey.slice(0,4)) === currentYear)
     .reduce((sum, w) => sum + netForMonth(w), 0);
 
-  // Sum net for all months in current quarter
   const qtrSavings = state.weeks
     .filter(w => {
       const y = parseInt(w.monthKey.slice(0,4));
@@ -1275,13 +1280,8 @@ function renderDashboard() {
     })
     .reduce((sum, w) => sum + netForMonth(w), 0);
 
-  const qtrTarget   = state.quarterlyTarget;
-  const qtrPct      = qtrTarget ? Math.min((qtrSavings / qtrTarget) * 100, 100) : 0;
-  const qtrOver     = qtrTarget && qtrSavings >= qtrTarget;
+  const trackerRow = el('div',{style:'display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px;'});
 
-  const trackerRow = el('div',{style:'display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px;'});
-
-  // YTD savings
   const ytdCard = el('div',{class:'s-card'});
   ytdCard.append(
     el('div',{class:'s-label', text:`${currentYear} Savings`}),
@@ -1289,44 +1289,12 @@ function renderDashboard() {
   );
   trackerRow.appendChild(ytdCard);
 
-  // Quarter savings with progress bar
   const qtrCard = el('div',{class:'s-card'});
-  const qtrLabel = el('div',{class:'s-label', text:`Q${currentQ} Savings`});
-  const qtrVal   = el('div',{class:'s-val mono', style:`color:${qtrSavings>=0?'var(--green)':'var(--red)'}`, text:fmt(qtrSavings,true)});
-  qtrCard.append(qtrLabel, qtrVal);
-  if(qtrTarget) {
-    const qtrTrack = el('div',{class:'track', style:'margin-top:8px;'});
-    const qtrFill  = el('div',{class:'track-fill', style:`width:${qtrPct}%;background:${qtrOver?'var(--green)':'var(--accent)'}`});
-    qtrTrack.appendChild(qtrFill);
-    const qtrSub = el('div',{style:'font-size:10px;color:var(--dim);margin-top:4px;'});
-    qtrSub.textContent = qtrOver
-      ? `✓ target of ${fmt(qtrTarget)} hit`
-      : `${fmt(qtrTarget - qtrSavings)} to go`;
-    qtrCard.append(qtrTrack, qtrSub);
-  }
+  qtrCard.append(
+    el('div',{class:'s-label', text:`Q${currentQ} Savings`}),
+    el('div',{class:'s-val mono', style:`color:${qtrSavings>=0?'var(--green)':'var(--red)'}`, text:fmt(qtrSavings,true)})
+  );
   trackerRow.appendChild(qtrCard);
-
-  // Quarterly target — inline editable
-  const qtCard = el('div',{class:'s-card', style:'cursor:pointer;'});
-  const qtLabel = el('div',{class:'s-label', text:'Quarterly Target'});
-  if(state.editBudget === '__qtr__') {
-    const inp = el('input',{class:'budget-inline-input', style:'width:100%;font-size:15px;'});
-    inp.value = String(state.editBudgetVal);
-    inp.addEventListener('input', e => state.editBudgetVal = e.target.value);
-    inp.addEventListener('blur',    () => commitQuarterlyTarget());
-    inp.addEventListener('keydown', e => {
-      if(e.key==='Enter')  commitQuarterlyTarget();
-      if(e.key==='Escape') { state.editBudget=null; render(); }
-    });
-    qtCard.append(qtLabel, inp);
-    setTimeout(()=>inp.focus(), 10);
-  } else {
-    const qtVal = el('div',{class:'s-val mono', style:'color:var(--dim)', text:qtrTarget ? fmt(qtrTarget) : '—'});
-    const qtSub = el('div',{style:'font-size:10px;color:var(--dim2);margin-top:4px;', text:'tap to edit'});
-    qtCard.append(qtLabel, qtVal, qtSub);
-    qtCard.addEventListener('click', () => { state.editBudget='__qtr__'; state.editBudgetVal=String(state.quarterlyTarget||''); render(); });
-  }
-  trackerRow.appendChild(qtCard);
 
   wrap.appendChild(trackerRow);
   const nav=el('div',{class:'week-nav'});
@@ -1344,72 +1312,34 @@ function renderDashboard() {
   nav.append(prev,navMid,next);
   wrap.appendChild(nav);
 
-  // Summary
-  const headroom = net - state.savingsTarget;
-  const sumRow=el('div',{class:'summary-row', style:'grid-template-columns:repeat(2,1fr);'});
+  // Summary — simple 3-card row
+  const sumRow=el('div',{class:'summary-row', style:'grid-template-columns:repeat(3,1fr);'});
 
-  // Income — per-month override or default
-  const hasMonthOverride = state.manualIncomeMap[currentMonthKey] != null;
-  const hasDefaultIncome = state.defaultIncome != null;
-  const hasAnyManual     = hasMonthOverride || hasDefaultIncome;
-
-  const incCard = el('div',{class:'s-card', style:'cursor:pointer;'});
-  const incLabel = el('div',{class:'s-label'});
-  if(hasMonthOverride) {
-    incLabel.innerHTML = 'Income <span style="color:var(--accent);font-size:9px;letter-spacing:.08em;">THIS MONTH</span>';
-  } else if(hasDefaultIncome) {
-    incLabel.innerHTML = 'Income <span style="color:var(--dim);font-size:9px;letter-spacing:.08em;">DEFAULT</span>';
-  } else {
-    incLabel.innerHTML = 'Income <span style="color:var(--dim2);font-size:9px;letter-spacing:.08em;">tap to set</span>';
-  }
-
-  if(state.editBudget === '__income__') {
-    const editWrap = el('div');
-    const mLabel = el('div',{style:'font-size:10px;color:var(--dim);margin-bottom:4px;', text:`This month (${fmtMonth(currentMonthKey)})`});
-    const mInp   = el('input',{class:'budget-inline-input', style:'width:100%;font-size:15px;margin-bottom:10px;'});
-    mInp.value   = hasMonthOverride ? String(state.manualIncomeMap[currentMonthKey]) : '';
-    mInp.placeholder = 'leave blank to use default';
-    const dLabel = el('div',{style:'font-size:10px;color:var(--dim);margin-bottom:4px;', text:'Default (all other months)'});
-    const dInp   = el('input',{class:'budget-inline-input', style:'width:100%;font-size:15px;'});
-    dInp.value   = state.defaultIncome != null ? String(state.defaultIncome) : '';
-    dInp.placeholder = 'e.g. 8500';
-    const saveBtn   = el('button',{class:'btn btn-primary', style:'width:100%;margin-top:10px;font-size:13px;', text:'Save'});
-    const cancelBtn = el('button',{class:'btn btn-ghost',   style:'width:100%;margin-top:6px;font-size:12px;',  text:'Cancel'});
-    saveBtn.addEventListener('click',   () => commitManualIncome(currentMonthKey, mInp.value, dInp.value));
-    cancelBtn.addEventListener('click', () => { state.editBudget=null; render(); });
-    [mInp,dInp].forEach(inp => inp.addEventListener('keydown', e => {
-      if(e.key==='Enter')  commitManualIncome(currentMonthKey, mInp.value, dInp.value);
-      if(e.key==='Escape') { state.editBudget=null; render(); }
-    }));
-    editWrap.append(mLabel, mInp, dLabel, dInp, saveBtn, cancelBtn);
-    incCard.append(incLabel, editWrap);
-    setTimeout(()=> (hasDefaultIncome ? dInp : mInp).focus(), 10);
-  } else {
-    const incVal = el('div',{class:'s-val mono', style:'color:var(--green)', text:fmt(income)});
-    const subLines = el('div',{style:'margin-top:4px;'});
-    if(hasMonthOverride && hasDefaultIncome) {
-      subLines.appendChild(el('div',{style:'font-size:10px;color:var(--dim);', text:`default: ${fmt(state.defaultIncome)}`}));
-    }
-    if(!hasAnyManual) {
-      subLines.appendChild(el('div',{style:'font-size:10px;color:var(--dim2);', text:'from transactions · tap to set'}));
-    } else {
-      const editLink = el('div',{style:'font-size:10px;color:var(--dim);cursor:pointer;'});
-      editLink.textContent = hasMonthOverride ? 'clear month override · edit' : 'edit';
-      editLink.addEventListener('click', e => {
-        e.stopPropagation();
-        if(hasMonthOverride) commitManualIncome(currentMonthKey, '', String(state.defaultIncome ?? ''));
-        else { state.editBudget='__income__'; render(); }
-      });
-      subLines.appendChild(editLink);
-    }
-    incCard.append(incLabel, incVal, subLines);
-    incCard.addEventListener('click', () => { state.editBudget='__income__'; render(); });
-  }
+  // Income (simple, from transactions)
+  const incCard = el('div',{class:'s-card'});
+  incCard.append(
+    el('div',{class:'s-label', text:'Income'}),
+    el('div',{class:'s-val mono', style:'color:var(--green)', text:fmt(income)})
+  );
   sumRow.appendChild(incCard);
 
   // Spend
+  const totalBudget = CATS.filter(c=>!c.isIncome&&!c.isTransfer)
+    .reduce((s,c) => s + (state.budgets[c.name] || 0), 0);
+  const spendPct = totalBudget > 0 ? Math.round((spend / totalBudget) * 100) : null;
   const spCard = el('div',{class:'s-card'});
-  spCard.append(el('div',{class:'s-label',text:'Spend'}), el('div',{class:'s-val mono',text:fmt(spend)}));
+  const spVal  = el('div',{class:'s-val mono', text:fmt(spend)});
+  spCard.append(el('div',{class:'s-label',text:'Spend'}), spVal);
+  if(totalBudget > 0) {
+    const spSub = el('div',{style:'margin-top:5px;'});
+    const spTrack = el('div',{class:'track'});
+    const spFill  = el('div',{class:'track-fill', style:`width:${Math.min(spendPct,100)}%;background:${spendPct>=100?'var(--red)':'var(--accent)'}`});
+    spTrack.appendChild(spFill);
+    const spLabel = el('div',{style:'font-size:10px;color:var(--dim);margin-top:4px;'});
+    spLabel.textContent = `${spendPct}% of ${fmt(totalBudget)} budget`;
+    spSub.append(spTrack, spLabel);
+    spCard.appendChild(spSub);
+  }
   sumRow.appendChild(spCard);
 
   // Net
@@ -1417,39 +1347,12 @@ function renderDashboard() {
   netCard.append(el('div',{class:'s-label',text:'Net'}), el('div',{class:'s-val mono',style:`color:${net>=0?'var(--green)':'var(--red)'}`,text:fmt(net,true)}));
   sumRow.appendChild(netCard);
 
-  // Savings target — inline editable
-  const tgtCard = el('div',{class:'s-card', style:'cursor:pointer;'});
-  const tgtLabel = el('div',{class:'s-label',text:'Savings target'});
-  if(state.editBudget==='__savings__') {
-    const inp = el('input',{class:'budget-inline-input', style:'width:100%;font-size:16px;', value:String(state.editBudgetVal)});
-    inp.addEventListener('input', e => state.editBudgetVal = e.target.value);
-    inp.addEventListener('blur', commitSavingsTarget);
-    inp.addEventListener('keydown', e => { if(e.key==='Enter') commitSavingsTarget(); if(e.key==='Escape'){state.editBudget=null;render();} });
-    tgtCard.append(tgtLabel, inp);
-    setTimeout(()=>inp.focus(),10);
-  } else {
-    const tgtVal = el('div',{class:'s-val mono',style:'color:var(--dim);',text:fmt(state.savingsTarget)});
-    tgtCard.append(tgtLabel, tgtVal);
-    tgtCard.addEventListener('click', () => { state.editBudget='__savings__'; state.editBudgetVal=String(state.savingsTarget); render(); });
-  }
-  sumRow.appendChild(tgtCard);
-
-  // Headroom
-  const hrCard = el('div',{class:'s-card', style:'grid-column:1/-1;'});
-  const hrSign = headroom >= 0;
-  hrCard.append(
-    el('div',{class:'s-label', text: hrSign ? 'Headroom to spend' : 'Over savings target'}),
-    el('div',{class:'s-val mono', style:`color:${hrSign?'var(--green)':'var(--red)'}`, text: (hrSign?'+':'-') + fmt(Math.abs(headroom))})
-  );
-  sumRow.appendChild(hrCard);
-
   wrap.appendChild(sumRow);
 
   // Category cards
   const grid=el('div',{class:'cats-grid'});
   CATS.forEach(cat=>{
-    // For Income, use manual/default income if set for this month
-    const spent = (cat.isIncome && manualIncome != null) ? manualIncome : totals[cat.name];
+    const spent = totals[cat.name];
     const budget=cat.isIncome?null:state.budgets[cat.name];
     const pct=budget?Math.min((spent/budget)*100,100):0;
     const over=budget&&spent>budget;
@@ -1520,7 +1423,7 @@ function renderDashboard() {
   if(state.selectedCat){
     const cat=CAT_MAP[state.selectedCat];
     const catTxns=txns.filter(t=>{
-      if(state.selectedCat==='Income') return t.amount>0 && t.category!=='Internal Transfers';
+      if(state.selectedCat==='Income') return (t.category === 'Income' || (!t.category && t.amount > 0)) && t.category !== 'Internal Transfers';
       if(state.selectedCat==='Internal Transfers') return t.category==='Internal Transfers';
       return t.category===state.selectedCat && t.amount<0;
     }).sort((a,b)=>new Date(b.date)-new Date(a.date));
@@ -1700,21 +1603,29 @@ async function commitManualIncome(monthKey, monthVal, defaultVal) {
   state.defaultIncome = (!isNaN(dVal) && dVal >= 0) ? dVal : state.defaultIncome;
   render();
 
-  // Persist everything in one call
+  // Build payload
   const savePayload = { defaultIncome: state.defaultIncome };
   if(monthKey) {
     if(!isNaN(mVal) && mVal >= 0) {
-      savePayload.manualIncomeMonth  = monthKey;
-      savePayload.manualIncomeValue  = mVal;
+      savePayload.manualIncomeMonth = monthKey;
+      savePayload.manualIncomeValue = mVal;
     } else {
       savePayload.clearManualIncomeMonth = monthKey;
     }
   }
 
+  // Debug: show what we're sending
+  state.error = `Saving: ${JSON.stringify(savePayload)}`;
+  render();
+
   try {
-    await api('saveBudgets', savePayload);
+    const result = await api('saveBudgets', savePayload);
+    state.error = `Saved OK: ${JSON.stringify(result)} — reload to confirm`;
+    render();
+    setTimeout(() => { state.error = null; render(); }, 4000);
   } catch(e) {
-    state.error = 'Failed to save income: ' + e.message; render();
+    state.error = 'Save failed: ' + e.message;
+    render();
   }
 }
 
