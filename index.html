@@ -506,6 +506,10 @@ function fmt(n, sign=false) {
   const s = Math.abs(n).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});
   return (sign ? (n<0?'−':'+') : '') + '$' + s;
 }
+function fmtR(n, sign=false) {
+  const s = Math.round(Math.abs(n)).toLocaleString('en-AU',{minimumFractionDigits:0,maximumFractionDigits:0});
+  return (sign ? (n<0?'−':'+') : '') + '$' + s;
+}
 
 function monthKey(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
@@ -1285,14 +1289,14 @@ function renderDashboard() {
   const ytdCard = el('div',{class:'s-card'});
   ytdCard.append(
     el('div',{class:'s-label', text:`${currentYear} Savings`}),
-    el('div',{class:'s-val mono', style:`color:${ytdSavings>=0?'var(--green)':'var(--red)'}`, text:fmt(ytdSavings,true)})
+    el('div',{class:'s-val mono', style:`color:${ytdSavings>=0?'var(--green)':'var(--red)'}`, text:fmtR(ytdSavings,true)})
   );
   trackerRow.appendChild(ytdCard);
 
   const qtrCard = el('div',{class:'s-card'});
   qtrCard.append(
     el('div',{class:'s-label', text:`Q${currentQ} Savings`}),
-    el('div',{class:'s-val mono', style:`color:${qtrSavings>=0?'var(--green)':'var(--red)'}`, text:fmt(qtrSavings,true)})
+    el('div',{class:'s-val mono', style:`color:${qtrSavings>=0?'var(--green)':'var(--red)'}`, text:fmtR(qtrSavings,true)})
   );
   trackerRow.appendChild(qtrCard);
 
@@ -1319,7 +1323,7 @@ function renderDashboard() {
   const incCard = el('div',{class:'s-card'});
   incCard.append(
     el('div',{class:'s-label', text:'Income'}),
-    el('div',{class:'s-val mono', style:'color:var(--green)', text:fmt(income)})
+    el('div',{class:'s-val mono', style:'color:var(--green)', text:fmtR(income)})
   );
   sumRow.appendChild(incCard);
 
@@ -1328,7 +1332,7 @@ function renderDashboard() {
     .reduce((s,c) => s + (state.budgets[c.name] || 0), 0);
   const spendPct = totalBudget > 0 ? Math.round((spend / totalBudget) * 100) : null;
   const spCard = el('div',{class:'s-card'});
-  const spVal  = el('div',{class:'s-val mono', text:fmt(spend)});
+  const spVal  = el('div',{class:'s-val mono', text:fmtR(spend)});
   spCard.append(el('div',{class:'s-label',text:'Spend'}), spVal);
   if(totalBudget > 0) {
     const spSub = el('div',{style:'margin-top:5px;'});
@@ -1336,7 +1340,7 @@ function renderDashboard() {
     const spFill  = el('div',{class:'track-fill', style:`width:${Math.min(spendPct,100)}%;background:${spendPct>=100?'var(--red)':'var(--accent)'}`});
     spTrack.appendChild(spFill);
     const spLabel = el('div',{style:'font-size:10px;color:var(--dim);margin-top:4px;'});
-    spLabel.textContent = `${spendPct}% of ${fmt(totalBudget)} budget`;
+    spLabel.textContent = `${spendPct}% of ${fmtR(totalBudget)} budget`;
     spSub.append(spTrack, spLabel);
     spCard.appendChild(spSub);
   }
@@ -1344,7 +1348,7 @@ function renderDashboard() {
 
   // Net
   const netCard = el('div',{class:'s-card'});
-  netCard.append(el('div',{class:'s-label',text:'Net'}), el('div',{class:'s-val mono',style:`color:${net>=0?'var(--green)':'var(--red)'}`,text:fmt(net,true)}));
+  netCard.append(el('div',{class:'s-label',text:'Net'}), el('div',{class:'s-val mono',style:`color:${net>=0?'var(--green)':'var(--red)'}`,text:fmtR(net,true)}));
   sumRow.appendChild(netCard);
 
   wrap.appendChild(sumRow);
@@ -1367,7 +1371,7 @@ function renderDashboard() {
     left.append(dot,el('span',{class:'cat-name',text:cat.name}));
 
     const right=el('div',{class:'cat-right'});
-    const spentEl=el('span',{class:'cat-spent',text:fmt(spent)});
+    const spentEl=el('span',{class:'cat-spent',text:fmtR(spent)});
     spentEl.style.color=cat.isIncome?'var(--green)':over?'var(--red)':'var(--text)';
     right.appendChild(spentEl);
 
@@ -1390,7 +1394,7 @@ function renderDashboard() {
         right.appendChild(inp);
         setTimeout(()=>inp.focus(),10);
       } else {
-        const editBtn=el('button',{class:'budget-edit-btn',text:'/ '+fmt(budget)});
+        const editBtn=el('button',{class:'budget-edit-btn',text:'/ '+fmtR(budget)});
         editBtn.addEventListener('click',e=>{
           e.stopPropagation();
           state.editBudget=cat.name;
@@ -1425,7 +1429,7 @@ function renderDashboard() {
     const catTxns=txns.filter(t=>{
       if(state.selectedCat==='Income') return (t.category === 'Income' || (!t.category && t.amount > 0)) && t.category !== 'Internal Transfers';
       if(state.selectedCat==='Internal Transfers') return t.category==='Internal Transfers';
-      return t.category===state.selectedCat && t.amount<0;
+      return t.category===state.selectedCat;
     }).sort((a,b)=>new Date(b.date)-new Date(a.date));
 
     const panel=el('div',{class:'txn-panel'});
