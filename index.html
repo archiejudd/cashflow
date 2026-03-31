@@ -340,8 +340,8 @@ body {
 /* Responsive */
 @media (max-width: 600px) {
   .page-wrap { padding: 20px 12px 80px; }
-  .summary-row { grid-template-columns: 1fr 1fr; }
-  .summary-row .s-card:last-child { grid-column: 1/-1; }
+  .summary-row { grid-template-columns: 1fr; }
+  .summary-row .s-card { grid-column: 1/-1; }
   .cats-grid { grid-template-columns: 1fr; }
   .onboard-card { padding: 28px 18px; }
   .dash-header { flex-direction: column; gap: 10px; }
@@ -381,7 +381,7 @@ const CAT_NAMES = CATS.map(c => c.name);
 const CAT_MAP   = Object.fromEntries(CATS.map(c => [c.name, c]));
 
 // ── Paste your Apps Script Web App URL here after setup ──
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzEHtKWAVGoh7BFfXoknodtr8mF2wGyaeEjTvdxXuXo8y0sJ7IQwcrDqCGLZXTxPTNH6Q/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyFpqTW7qgkPRU56DzA4xfi8Ej7jjDSnSqOWCs-OMPsmWBZ5IjVmFjNUVDW5KgvEknACA/exec';
 // ─────────────────────────────────────────────────────────
 
 const LS = {
@@ -620,6 +620,13 @@ function groupByMonth(txns) {
     if(!map[k]) map[k]={ monthKey:k, transactions:[] };
     map[k].transactions.push(t);
   }
+  // Add future months up to 6 ahead of today so notes can be added
+  const now = new Date();
+  for(let i=0; i<=6; i++){
+    const d = new Date(now.getFullYear(), now.getMonth()+i, 1);
+    const k = monthKey(d);
+    if(!map[k]) map[k]={ monthKey:k, transactions:[] };
+  }
   return Object.values(map).sort((a,b)=> b.monthKey.localeCompare(a.monthKey));
 }
 
@@ -774,7 +781,8 @@ const state = {
   quarterlyTarget: 6000,
   manualIncomeMap: {},
   defaultIncome: null,
-  uploadSummary: null,  // { total, byRule, byAI, duplicates } shown after upload
+  uploadSummary: null,
+  monthNotes: {},      // { "2026-03": "Surgery payment this month", ... }
   weeks: [],
   wi: 0,
   budgets: {},
@@ -802,6 +810,7 @@ async function loadFromSheet() {
     state.quarterlyTarget  = data.quarterlyTarget  != null ? data.quarterlyTarget  : state.quarterlyTarget;
     state.manualIncomeMap  = data.manualIncomeMap || {};
     state.defaultIncome    = data.defaultIncome   != null ? data.defaultIncome   : state.defaultIncome;
+    state.monthNotes       = data.monthNotes      || {};
     if(!data.hasApiKey) { state.stage = 'setup-key'; render(); return; }
     if(data.transactions.length > 0) {
       state.weeks = groupByMonth(data.transactions);
@@ -1309,15 +1318,53 @@ function renderDashboard() {
   prev.addEventListener('click',()=>{ state.wi=Math.min(state.wi+1,state.weeks.length-1); state.selectedCat=null; render(); });
   next.addEventListener('click',()=>{ state.wi=Math.max(state.wi-1,0); state.selectedCat=null; render(); });
   const navMid=el('div',{style:'text-align:center'});
+  const isFuture = month && month.monthKey > monthKey(new Date());
   navMid.append(
     el('div',{class:'week-range',text:month?fmtMonth(month.monthKey):''}),
-    el('div',{class:'week-meta',text:`${txns.length} transactions · Month ${state.weeks.length-state.wi} of ${state.weeks.length}`})
+    el('div',{class:'week-meta',text: isFuture
+      ? 'Future month · add a note below'
+      : `${txns.length} transactions · Month ${state.weeks.length-state.wi} of ${state.weeks.length}`})
   );
   nav.append(prev,navMid,next);
   wrap.appendChild(nav);
 
+  // Month note — editable one-liner below nav
+  const noteKey  = currentMonthKey;
+  const noteText = state.monthNotes[noteKey] || '';
+  const noteWrap = el('div',{style:'margin-bottom:16px;'});
+  if(state.editBudget === '__note__') {
+    const inp = el('input',{class:'input', style:'font-size:13px;padding:9px 12px;', placeholder:'Add a note for this month e.g. Surgery payment, holiday…'});
+    inp.value = noteText;
+    const save = async () => {
+      const v = inp.value.trim();
+      state.monthNotes = { ...state.monthNotes, [noteKey]: v };
+      state.editBudget = null;
+      render();
+      try { await api('saveBudgets', { monthNote: noteKey, monthNoteValue: v }); }
+      catch(e) { state.error = 'Failed to save note: ' + e.message; render(); }
+    };
+    inp.addEventListener('blur',    () => save());
+    inp.addEventListener('keydown', e => { if(e.key==='Enter') { e.preventDefault(); save(); } if(e.key==='Escape') { state.editBudget=null; render(); }});
+    noteWrap.appendChild(inp);
+    setTimeout(()=>inp.focus(), 10);
+  } else if(noteText) {
+    const noteEl = el('div',{style:'font-size:13px;color:var(--dim);background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:9px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;'});
+    noteEl.append(
+      el('span',{text:'📝 ' + noteText}),
+      el('span',{style:'font-size:11px;color:var(--dim2);flex-shrink:0;', text:'tap to edit'})
+    );
+    noteEl.addEventListener('click', () => { state.editBudget='__note__'; render(); });
+    noteWrap.appendChild(noteEl);
+  } else {
+    const addNote = el('button',{style:'background:none;border:none;color:var(--dim2);font-size:12px;cursor:pointer;padding:4px 2px;font-family:inherit;'});
+    addNote.textContent = '+ Add month note';
+    addNote.addEventListener('click', () => { state.editBudget='__note__'; render(); });
+    noteWrap.appendChild(addNote);
+  }
+  wrap.appendChild(noteWrap);
+
   // Summary — simple 3-card row
-  const sumRow=el('div',{class:'summary-row', style:'grid-template-columns:repeat(3,1fr);'});
+  const sumRow=el('div',{class:'summary-row'});
 
   // Income (simple, from transactions)
   const incCard = el('div',{class:'s-card'});
